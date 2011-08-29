@@ -28,6 +28,11 @@ config MACH_HARMONY
        help
          Support for NVIDIA Harmony development platform
 
+config MACH_ADAM
+       bool "Notion Ink Adam TabletPC"
+       help
+         Support for all TabletPCs based on the ADAM design.
+
 config MACH_SHUTTLE
        bool "Shuttle (P10AN01) TabletPC"
        help

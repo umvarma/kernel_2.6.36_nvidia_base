@@ -536,7 +536,11 @@ int __init tegra_disable_boot_clocks(void)
 	list_for_each_entry(c, &clocks, node) {
 		clk_lock_save(c, flags);
 		if (c->refcnt == 0 && c->state == ON &&
-				c->ops && c->ops->disable) {
+				c->ops && c->ops->disable
+#if defined(CONFIG_TEGRA_DEBUG_UARTA)
+				&& c->name != "uarta"
+#endif
+				) {
 			pr_warning("Disabling clock %s left on by bootloader\n",
 				c->name);
 			c->ops->disable(c);
