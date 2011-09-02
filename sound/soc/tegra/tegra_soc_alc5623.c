@@ -142,9 +142,6 @@ static int tegra_hifi_hw_params(struct snd_pcm_substream *substream,
 	/* Get system clock */
 	sys_clk = clk_get_rate(ctx->dap_mclk);
 
-	//mama says there will be days like this...
-	sys_clk = 22579200;
-
 	/* Set CPU sysclock as the same - in Tegra, seems to be a NOP */
 	err = snd_soc_dai_set_sysclk(cpu_dai, 0, sys_clk, SND_SOC_CLOCK_IN);
 	if (err < 0) {
@@ -350,29 +347,19 @@ void tegra_ext_control(struct snd_soc_codec *codec, int new_con)
 
         /* Disconnect old codec routes and connect new routes*/
         if (new_con & TEGRA_HEADPHONE)
-                snd_soc_dapm_enable_pin(codec, "Headphone");
+                snd_soc_dapm_enable_pin(codec, "Headphone Jack");
         else
-                snd_soc_dapm_disable_pin(codec, "Headphone");
+                snd_soc_dapm_disable_pin(codec, "Headphone Jack");
 
         if (new_con & (TEGRA_SPK | TEGRA_EAR_SPK))
-                snd_soc_dapm_enable_pin(codec, "Int Spk");
+                snd_soc_dapm_enable_pin(codec, "Internal Speaker");
         else
-                snd_soc_dapm_disable_pin(codec, "Int Spk");
+                snd_soc_dapm_disable_pin(codec, "Internal Speaker");
 
         if (new_con & TEGRA_INT_MIC)
-                snd_soc_dapm_enable_pin(codec, "Int Mic");
+                snd_soc_dapm_enable_pin(codec, "MIC1");
         else
-                snd_soc_dapm_disable_pin(codec, "Int Mic");
-
-        if (new_con & TEGRA_HEADSET_OUT)
-                snd_soc_dapm_enable_pin(codec, "Headset Out");
-        else
-                snd_soc_dapm_disable_pin(codec, "Headset Out");
-
-        if (new_con & TEGRA_HEADSET_IN)
-                snd_soc_dapm_enable_pin(codec, "Headset In");
-        else
-                snd_soc_dapm_disable_pin(codec, "Headset In");
+                snd_soc_dapm_disable_pin(codec, "MIC1");
 
         audio_data->codec_con = new_con;
 
@@ -580,34 +567,6 @@ static struct snd_kcontrol_new tegra_call_mode_control = {
 	.put = tegra_call_mode_put
 };
 
-#if 0
-static int tegra_das_controls_init(struct snd_soc_codec *codec)
-{
-	struct adam_audio_priv* ctx = codec->socdev->codec_data;
-	int err;
-
-	/* Add play route control */
-	err = snd_ctl_add(codec->card,
-		snd_ctl_new1(&tegra_play_route_control, ctx));
-	if (err < 0)
-		return err;
-
-	/* Add capture route control */
-	err = snd_ctl_add(codec->card,
-		snd_ctl_new1(&tegra_capture_route_control, ctx));
-	if (err < 0)
-		return err;
-
-	/* Add call mode switch control */
-	err = snd_ctl_add(codec->card,
-		snd_ctl_new1(&tegra_call_mode_control, ctx));
-	if (err < 0)
-		return err;
-
-	return 0;
-}
-#endif
-
 #ifndef ADAM_MANUAL_CONTROL_OF_OUTPUTDEVICE
 
 /* ------- Headphone jack autodetection  -------- */
@@ -647,13 +606,11 @@ static const struct snd_soc_dapm_widget tegra_dapm_widgets[] = {
 /* Tegra machine audio map (connections to the codec pins) */
 static const struct snd_soc_dapm_route audio_map[] = {
 	{"Headphone Jack", NULL, "HPR"},
-	{"Headphone Jack", NULL, "HPL"},
-	{"Internal Speaker", NULL, "SPKL"},
-	{"Internal Speaker", NULL, "SPKLN"},
-	{"Internal Speaker", NULL, "SPKR"},
-	{"Internal Speaker", NULL, "SPKRN"},
-	{"Mic Bias1", NULL, "Internal Mic"},
-	{"MIC1", NULL, "Mic Bias1"},
+        {"Headphone Jack", NULL, "HPL"},
+        {"Internal Speaker", NULL, "AUXOUTL"},
+        {"Internal Speaker", NULL, "AUXOUTR"},
+        {"Mic Bias1", NULL, "Internal Mic"},
+        {"MIC1", NULL, "Mic Bias1"},
 };
 
 #ifdef ADAM_MANUAL_CONTROL_OF_OUTPUTDEVICE
@@ -679,9 +636,6 @@ static int tegra_codec_init(struct snd_soc_codec *codec)
 		}
 		clk_enable(ctx->dap_mclk);
 
-		/* Add the controls used to route audio to bluetooth/voice */
-		//tegra_das_controls_init(codec);
-		
 		/* Store the GPIO used to detect headphone */
 		tegra_jack_gpios[0].gpio = ctx->gpio_hp_det;
 
@@ -707,16 +661,27 @@ static int tegra_codec_init(struct snd_soc_codec *codec)
 		snd_soc_dapm_new_widgets(codec);
 					
 		/* Set endpoints to not connected */
-		snd_soc_dapm_nc_pin(codec, "LINEL");
-		snd_soc_dapm_nc_pin(codec, "LINER");
-		snd_soc_dapm_nc_pin(codec, "PHONEIN");
+		snd_soc_dapm_nc_pin(codec, "LINEINL");
+		snd_soc_dapm_nc_pin(codec, "LINEINR");
+		snd_soc_dapm_nc_pin(codec, "AUXINL");
+		snd_soc_dapm_nc_pin(codec, "AUXINR");
 		snd_soc_dapm_nc_pin(codec, "MIC2");
-		snd_soc_dapm_nc_pin(codec, "MONO");
+		snd_soc_dapm_nc_pin(codec, "SPKOUT");
+		snd_soc_dapm_nc_pin(codec, "SPKOUTN");
 
 		/* Set endpoints to default off mode */
 		snd_soc_dapm_enable_pin(codec, "Internal Speaker");
 		snd_soc_dapm_enable_pin(codec, "Internal Mic");
 		snd_soc_dapm_disable_pin(codec, "Headphone Jack");
+
+                /* Default to OFF */
+                tegra_ext_control(codec, TEGRA_AUDIO_OFF);
+
+                ret = tegra_controls_init(codec);
+                if (ret < 0) {
+                        pr_err("Failed in controls init \n");
+                        return ret;
+                }
 	
 		ret = snd_soc_dapm_sync(codec);
 		if (ret) {
@@ -781,6 +746,15 @@ static struct snd_soc_dai_link tegra_soc_dai[] = {
 	},
 };
 
+static struct tegra_audio_data audio_data = {
+        .init_done = 0,
+        .play_device = TEGRA_AUDIO_DEVICE_NONE,
+        .capture_device = TEGRA_AUDIO_DEVICE_NONE,
+        .is_call_mode = false,
+        .codec_con = TEGRA_AUDIO_OFF,
+};
+
+
 /* The Tegra card definition */
 extern struct snd_soc_platform tegra_soc_platform;
 static struct snd_soc_card tegra_snd_soc = {
@@ -799,6 +773,7 @@ static struct snd_soc_card tegra_snd_soc = {
 static struct snd_soc_device tegra_snd_devdata = {
 	.card = &tegra_snd_soc,
 	.codec_dev = &soc_codec_dev_alc5623,
+	.codec_data = &audio_data,
 };
 
 /* initialization */

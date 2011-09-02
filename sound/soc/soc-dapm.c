@@ -1440,9 +1440,10 @@ int snd_soc_dapm_add_routes(struct snd_soc_codec *codec,
 	for (i = 0; i < num; i++) {
 		ret = snd_soc_dapm_add_route(codec, route);
 		if (ret < 0) {
-			printk(KERN_ERR "Failed to add route %s->%s\n",
+			printk(KERN_ERR "Failed to add route %s->%s(%d)\n",
 			       route->source,
-			       route->sink);
+			       route->sink,
+				ret);
 			return ret;
 		}
 		route++;

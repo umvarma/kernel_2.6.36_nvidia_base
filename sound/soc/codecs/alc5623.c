@@ -68,17 +68,17 @@ static const struct {
         u16 reg;        /* register */
         u16 val;        /* value */
 } alc5623_reg_default[] = {
-        {ALC5623_SPK_OUT_VOL                            , 0x4040 }, /* Unmute left and right channels, enable 0 cross detector, 0db volume */
+        {ALC5623_SPK_OUT_VOL                            , 0xFFFF }, /* Muted */
         {ALC5623_HP_OUT_VOL                             , 0x4040 }, /* Unmute left and right channels, enable 0 cross detector, 0db volume */
-        {ALC5623_MONO_AUX_OUT_VOL                       , 0xFFFF }, /* Phone input muted, Mono output muted */
-        {ALC5623_AUXIN_VOL                             , 0xFF1F }, /* Mute Aux In volume */
+        {ALC5623_MONO_AUX_OUT_VOL                       , 0x4040 }, /* Unmute L+2 */
+        {ALC5623_AUXIN_VOL                             	, 0xFF1F }, /* Mute Aux In volume */
         {ALC5623_LINE_IN_VOL                            , 0xFF1F }, /* Mute Line In volume */
         {ALC5623_STEREO_DAC_VOL                         , 0x6808 }, /* Mute volume output to Mono and Speaker */
         {ALC5623_MIC_VOL                                , 0x0808 }, /* Mic volume = 0db */
         {ALC5623_MIC_ROUTING_CTRL                       , 0xF0F0 }, /* Mute mic volume to Headphone, Speaker and Mono mixers, Differential mode enabled */
         {ALC5623_ADC_REC_GAIN                           , 0xF58B },
         {ALC5623_ADC_REC_MIXER                          , 0x3F3F }, /* Mic1 as recording sources */
-        {ALC5623_OUTPUT_MIXER_CTRL                      , 0x5700 },
+        {ALC5623_OUTPUT_MIXER_CTRL                      , 0xD340 }, 
         {ALC5623_MIC_CTRL                               , 0x0F02 }, /* 1.8uA short current det, Bias volt =0.9Avdd, +40db gain boost */
         {ALC5623_DAI_CONTROL                            , 0x8000 }, /* Slave interfase */
         {ALC5623_STEREO_AD_DA_CLK_CTRL           	, 0x166d},
@@ -94,7 +94,7 @@ static const struct {
         {ALC5623_GPIO_PIN_STICKY                        , 0x0000 }, /* No sticky ops */
         {ALC5623_GPIO_PIN_WAKEUP                        , 0x0000 }, /* No wakeups */
         {ALC5623_GPIO_PIN_SHARING                       , 0x0000 },
-        {ALC5623_JACK_DET_CTRL                          , 0x4180 }, /*jackdetect gpio, headout high, lineout low */
+        {ALC5623_JACK_DET_CTRL                          , 0x4160 }, /*jackdetect gpio, headout high, auxout low */
         {ALC5623_MISC_CTRL                              , 0x8000 }, /* Slow Vref */
         {ALC5623_PSEUDO_SPATIAL_CTRL  		        , 0x0003 }, /* Disable */
 };
