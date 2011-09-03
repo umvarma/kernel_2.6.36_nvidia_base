@@ -886,24 +886,15 @@ struct _coeff_div {
 /* codec hifi mclk (after PLL) clock divider coefficients */
 /* values inspired from column BCLK=32Fs of Appendix A table */
 static const struct _coeff_div coeff_div[] = {
-	{24576000,8000,0x3C6B},
-	{16384000,8000,0x3A69},
-	{24576000,12000,0x3A69},
-	{18432000,12000,0x2C6B},
-	{24576000,16000,0x2C6B},
-	{16384000,16000,0x2A69},
-	{24576000,24000,0x2A69},
-	{18432000,24000,0x1C6B},
-	{24576000,32000,0x1C6B},
-	{16384000,32000,0x1A69},
-	{24576000,48000,0x1A69},
-	{18432000,48000,0x0C6B},
-	{22579200,11025,0x3A69},
-	{16934400,11025,0x2C6B},
-	{22579200,22050,0x2A69},
-	{16934400,22050,0x1C6B},
-	{22579200,44100,0x1A69},
-	{16934400,44100,0x0C6B},
+
+        /* 44.1k */
+        {11289600, 44100, 0x0A69},
+        {22579200, 44100, 0x1A69},
+
+        /* 48k */
+        {12288000, 48000, 0x0A69},
+        {24576000, 48000, 0x1A69},
+
 };
 
 static int get_coeff(int mclk, int rate)
@@ -1001,7 +992,6 @@ static int alc5623_set_dai_fmt(struct snd_soc_dai *codec_dai,
 static int alc5623_pcm_hw_params(struct snd_pcm_substream *substream,
 		struct snd_pcm_hw_params *params, struct snd_soc_dai *dai)
 {
-	printk(KERN_DEBUG "%s++", __func__);
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)
 	struct snd_soc_device *socdev = rtd->socdev;
@@ -1016,7 +1006,6 @@ static int alc5623_pcm_hw_params(struct snd_pcm_substream *substream,
 	iface = snd_soc_read(codec, ALC5623_DAI_CONTROL);
 	iface &= ~ALC5623_DAI_I2S_DL_MASK;
 
-	printk(KERN_DEBUG "iface %x", iface);
 	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
@@ -1035,13 +1024,11 @@ static int alc5623_pcm_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	printk(KERN_DEBUG "iface %x", iface);
-	
 	/* set iface & srate */
 	snd_soc_write(codec, ALC5623_DAI_CONTROL, iface);
 	rate = params_rate(params);
-	printk(KERN_DEBUG "rate %x", rate);
 	coeff = get_coeff(alc5623->sysclk, rate);
+	WARN_ON(coeff < 0);
 	if (coeff < 0)
 		return -EINVAL;
 
@@ -1339,7 +1326,6 @@ static int alc5623_resume(struct platform_device *pdev)
 
 static int alc5623_probe(struct snd_soc_codec *codec)
 {
-	printk(KERN_DEBUG "%s++", __func__);
 
 	struct alc5623_priv *alc5623 = snd_soc_codec_get_drvdata(codec);
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36)	
@@ -1488,7 +1474,6 @@ static struct snd_soc_codec *alc5623_codec = NULL;
 static int alc5623_i2c_probe(struct i2c_client *client,
 				const struct i2c_device_id *id)
 {
-	printk(KERN_DEBUG "%s++", __func__);
 	struct alc5623_platform_data *pdata;
 	struct alc5623_priv *alc5623;
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)		
@@ -1686,7 +1671,6 @@ static struct i2c_driver alc5623_i2c_driver = {
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)	
 static int alc5623_plat_probe(struct platform_device *pdev)
 {
-	printk(KERN_DEBUG "%s++", __func__);
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
 	int ret = 0;
 

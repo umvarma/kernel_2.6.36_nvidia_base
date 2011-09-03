@@ -48,7 +48,7 @@
 #include <mach/gpio.h>
 #include <mach/clk.h>
 #include <mach/usb_phy.h>
-#include <mach/i2s.h>
+#include <mach/tegra2_i2s.h>
 #include <mach/system.h>
 #include <mach/nvmap.h>
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,38)	

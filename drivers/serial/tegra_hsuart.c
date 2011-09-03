@@ -3,7 +3,7 @@
  *
  * High-speed serial driver for NVIDIA Tegra SoCs
  *
- * Copyright (C) 2009 NVIDIA Corporation
+ * Copyright (C) 2009-2011 NVIDIA Corporation
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -54,6 +54,7 @@
 #define UART_RX_DMA_BUFFER_SIZE    (2048*4)
 
 #define UART_LSR_FIFOE		0x80
+#define UART_LSR_TXFIFO_FULL	0x100
 #define UART_IER_EORD		0x20
 #define UART_MCR_RTS_EN		0x40
 #define UART_MCR_CTS_EN		0x20
@@ -134,6 +135,14 @@ static inline u8 uart_readb(struct tegra_uart_port *t, unsigned long reg)
 	return val;
 }
 
+static inline u32 uart_readl(struct tegra_uart_port *t, unsigned long reg)
+{
+	u32 val = readl(t->uport.membase + (reg << t->uport.regshift));
+	dev_vdbg(t->uport.dev, "%s: %p %03lx = %02x\n", __func__,
+		t->uport.membase, reg << t->uport.regshift, val);
+	return val;
+}
+
 static inline void uart_writeb(struct tegra_uart_port *t, u8 val,
 	unsigned long reg)
 {
@@ -161,9 +170,17 @@ static void fill_tx_fifo(struct tegra_uart_port *t, int max_bytes)
 {
 	int i;
 	struct circ_buf *xmit = &t->uport.state->xmit;
+#ifndef CONFIG_ARCH_TEGRA_2x_SOC
+	unsigned long lsr;
+#endif
 
 	for (i = 0; i < max_bytes; i++) {
 		BUG_ON(uart_circ_empty(xmit));
+#ifndef CONFIG_ARCH_TEGRA_2x_SOC
+		lsr = uart_readl(t, UART_LSR);
+		if ((lsr & UART_LSR_TXFIFO_FULL))
+			break;
+#endif
 		uart_writeb(t, xmit->buf[xmit->tail], UART_TX);
 		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
 		t->uport.icount.tx++;
@@ -362,8 +379,20 @@ static void wait_sym_time(struct tegra_uart_port *t, unsigned int syms)
 static void tegra_fifo_reset(struct tegra_uart_port *t, u8 fcr_bits)
 {
 	unsigned char fcr = t->fcr_shadow;
+#ifdef CONFIG_ARCH_TEGRA_2x_SOC
 	fcr |= fcr_bits & (UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT);
 	uart_writeb(t, fcr, UART_FCR);
+#else
+	/*Hw issue: Resetting tx fifo with non-fifo
+	mode to avoid any extra character to be sent*/
+	fcr &= ~UART_FCR_ENABLE_FIFO;
+	uart_writeb(t, fcr, UART_FCR);
+	udelay(60);
+	fcr |= fcr_bits & (UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT);
+	uart_writeb(t, fcr, UART_FCR);
+	fcr |= UART_FCR_ENABLE_FIFO;
+	uart_writeb(t, fcr, UART_FCR);
+#endif
 	uart_readb(t, UART_SCR); /* Dummy read to ensure the write is posted */
 	wait_sym_time(t, 1); /* Wait for the flush to propagate. */
 }
@@ -727,7 +756,8 @@ static int tegra_uart_init_rx_dma(struct tegra_uart_port *t)
 	dma_addr_t rx_dma_phys;
 	void *rx_dma_virt;
 
-	t->rx_dma = tegra_dma_allocate_channel(TEGRA_DMA_MODE_CONTINUOUS);
+	t->rx_dma = tegra_dma_allocate_channel(TEGRA_DMA_MODE_CONTINUOUS,
+					"uart_rx_%d", t->uport.line);
 	if (!t->rx_dma) {
 		dev_err(t->uport.dev, "%s: failed to allocate RX DMA.\n", __func__);
 		return -ENODEV;
@@ -771,7 +801,8 @@ static int tegra_startup(struct uart_port *u)
 
 	t->use_tx_dma = false;
 	if (!TX_FORCE_PIO) {
-		t->tx_dma = tegra_dma_allocate_channel(TEGRA_DMA_MODE_ONESHOT);
+		t->tx_dma = tegra_dma_allocate_channel(TEGRA_DMA_MODE_ONESHOT,
+					"uart_tx_%d", u->line);
 		if (t->tx_dma)
 			t->use_tx_dma = true;
 		else
@@ -875,9 +906,9 @@ static void set_rts(struct tegra_uart_port *t, bool active)
 	unsigned char mcr;
 	mcr = t->mcr_shadow;
 	if (active)
-		mcr |= UART_MCR_RTS;
+		mcr |= UART_MCR_RTS_EN;
 	else
-		mcr &= ~UART_MCR_RTS;
+		mcr &= ~UART_MCR_RTS_EN;
 	if (mcr != t->mcr_shadow) {
 		uart_writeb(t, mcr, UART_MCR);
 		t->mcr_shadow = mcr;
@@ -987,16 +1018,125 @@ static void tegra_enable_ms(struct uart_port *u)
 {
 }
 
-#define UART_CLOCK_ACCURACY 5
+#ifndef CONFIG_ARCH_TEGRA_2x_SOC
+static int clk_div71_get_divider(unsigned long parent_rate,
+		unsigned long rate)
+{
+	s64 divider_u71 = parent_rate;
+	if (!rate)
+		return -EINVAL;
 
+	divider_u71 *= 2;
+	divider_u71 += rate - 1;
+	do_div(divider_u71, rate);
+
+	if ((divider_u71 - 2) < 0)
+		return 0;
+
+	if ((divider_u71 - 2) > 255)
+		return -EINVAL;
+
+	return divider_u71 - 2;
+}
+#endif
+
+static int clk_div16_get_divider(unsigned long parent_rate, unsigned long rate)
+{
+	s64 divider_u16;
+
+	divider_u16 = parent_rate;
+	if (!rate)
+		return -EINVAL;
+	divider_u16 += rate - 1;
+	do_div(divider_u16, rate);
+
+	if (divider_u16 > 0xFFFF)
+		return -EINVAL;
+
+	return divider_u16;
+}
+
+static unsigned long find_best_clock_source(struct tegra_uart_port *t,
+		unsigned long rate)
+{
+	struct uart_port *u = &t->uport;
+	struct tegra_uart_platform_data *pdata;
+	int i;
+	int divider;
+	unsigned long parent_rate;
+	unsigned long new_rate;
+	unsigned long err_rate;
+	unsigned int fin_err = rate;
+	unsigned long fin_rate = rate;
+	int final_index = -1;
+	int count;
+
+	pdata = u->dev->platform_data;
+	if (!pdata || !pdata->parent_clk_count)
+		return fin_rate;
+
+	for (count = 0; count < pdata->parent_clk_count; ++count) {
+		parent_rate = pdata->parent_clk_list[count].fixed_clk_rate;
+
+#ifndef CONFIG_ARCH_TEGRA_2x_SOC
+		divider = clk_div71_get_divider(parent_rate, rate);
+
+		/* Get the best divider around calculated value */
+		if (divider > 2) {
+			for (i = divider - 2; i < (divider + 2); ++i) {
+				new_rate = ((parent_rate << 1) + i + 1) /
+								(i + 2);
+				err_rate = abs(new_rate - rate);
+				if (err_rate < fin_err) {
+					final_index = count;
+					fin_err = err_rate;
+					fin_rate = new_rate;
+				}
+			}
+		}
+#endif
+		/* Get the divisor by uart controller dll/dlm */
+		divider = clk_div16_get_divider(parent_rate, rate);
+
+		/* Get the best divider around calculated value */
+		if (divider > 2) {
+			for (i = divider - 2; i < (divider + 2); ++i) {
+				new_rate = parent_rate/i;
+				err_rate = abs(new_rate - rate);
+				if (err_rate < fin_err) {
+					final_index = count;
+					fin_err = err_rate;
+					fin_rate = parent_rate;
+				}
+			}
+		}
+	}
+
+	if (final_index >= 0) {
+		dev_info(t->uport.dev, "Setting clk_src %s\n",
+				pdata->parent_clk_list[final_index].name);
+		clk_set_parent(t->clk,
+			pdata->parent_clk_list[final_index].parent_clk);
+	}
+	return fin_rate;
+}
+
+#define UART_CLOCK_ACCURACY 5
 static void tegra_set_baudrate(struct tegra_uart_port *t, unsigned int baud)
 {
 	unsigned long rate;
 	unsigned int divisor;
 	unsigned char lcr;
+	unsigned int baud_actual;
+	unsigned int baud_delta;
+	unsigned long best_rate;
 
 	if (t->baud == baud)
 		return;
+
+	rate = baud * 16;
+	best_rate = find_best_clock_source(t, rate);
+	clk_set_rate(t->clk, best_rate);
 
 	rate = clk_get_rate(t->clk);
 
@@ -1004,6 +1144,14 @@ static void tegra_set_baudrate(struct tegra_uart_port *t, unsigned int baud)
 	do_div(divisor, 16);
 	divisor += baud/2;
 	do_div(divisor, baud);
+
+	/* The allowable baudrate error from desired baudrate is 5% */
+	baud_actual = divisor ? rate / (16 * divisor) : 0;
+	baud_delta = abs(baud_actual - baud);
+	if (WARN_ON(baud_delta * 20 > baud)) {
+		dev_err(t->uport.dev, "requested baud %u, actual %u\n",
+				baud, baud_actual);
+	}
 
 	lcr = t->lcr_shadow;
 	lcr |= UART_LCR_DLAB;
@@ -1296,7 +1444,7 @@ static int tegra_uart_probe(struct platform_device *pdev)
 	u->regshift = 2;
 
 	t->clk = clk_get(&pdev->dev, NULL);
-	if (!t->clk) {
+	if (IS_ERR_OR_NULL(t->clk)) {
 		dev_err(&pdev->dev, "Couldn't get the clock\n");
 		goto fail;
 	}
@@ -1367,6 +1515,11 @@ void tegra_uart_set_mctrl(struct uart_port *uport, unsigned int mctrl)
 	struct tegra_uart_port *t;
 
 	t = container_of(uport, struct tegra_uart_port, uport);
+	if (t->uart_state != TEGRA_UART_OPENED) {
+		dev_err(t->uport.dev, "Uart is in invalid state\n");
+		return;
+	}
+
 	spin_lock_irqsave(&uport->lock, flags);
 	if (mctrl & TIOCM_RTS) {
 		t->rts_active = true;

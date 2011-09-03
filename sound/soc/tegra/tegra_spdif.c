@@ -19,21 +19,30 @@
  */
 
 #include "tegra_soc.h"
+#include <mach/spdif.h>
 
 /* spdif controller */
 struct tegra_spdif_info {
 	struct platform_device *pdev;
 	struct tegra_audio_platform_data *pdata;
-	struct clk *spdif_clk;
 	unsigned long spdif_phys;
 	unsigned long spdif_base;
-
-	unsigned long dma_req_sel;
-	int irq;
-
-	int ref_count;
-	struct spdif_regs_cache spdif_regs;
+	aud_dev_info  spdev_info;
 };
+
+void free_spdif_dma_request(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
+	struct tegra_spdif_info *info = cpu_dai->private_data;
+
+	info->spdev_info.fifo_mode = AUDIO_RX_MODE;
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		info->spdev_info.fifo_mode = AUDIO_TX_MODE;
+
+	am_free_dma_requestor(&info->spdev_info);
+}
 
 void setup_spdif_dma_request(struct snd_pcm_substream *substream,
 			struct tegra_dma_req *req,
@@ -44,18 +53,21 @@ void setup_spdif_dma_request(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
 	struct tegra_spdif_info *info = cpu_dai->private_data;
 
+	info->spdev_info.fifo_mode = AUDIO_RX_MODE;
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		info->spdev_info.fifo_mode = AUDIO_TX_MODE;
+
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		req->to_memory = false;
-		req->dest_addr = spdif_get_fifo_phy_base(info->spdif_phys,
-								AUDIO_TX_MODE);
+		req->dest_addr = am_get_fifo_phy_base(&info->spdev_info);
 		req->dest_wrap = 4;
 		req->source_wrap = 0;
 		req->dest_bus_width = 32;
 		req->source_bus_width = 32;
 	} else {
 		req->to_memory = true;
-		req->dest_addr = spdif_get_fifo_phy_base(info->spdif_phys,
-								AUDIO_RX_MODE);
+		req->dest_addr = am_get_fifo_phy_base(&info->spdev_info);
 		req->dest_wrap = 0;
 		req->source_wrap = 4;
 		req->dest_bus_width = 32;
@@ -63,7 +75,7 @@ void setup_spdif_dma_request(struct snd_pcm_substream *substream,
 	}
 	req->complete = dma_callback;
 	req->dev = dma_data;
-	req->req_sel = info->dma_req_sel;
+	req->req_sel = am_get_dma_requestor(&info->spdev_info);
 
 	return;
 }
@@ -73,17 +85,19 @@ static inline void start_spdif_playback(struct snd_soc_dai *dai)
 {
 	struct tegra_spdif_info *info = dai->private_data;
 
-	spdif_fifo_set_attention_level(info->spdif_base, AUDIO_TX_MODE,
-					SPDIF_FIFO_ATN_LVL_FOUR_SLOTS);
-	spdif_fifo_enable(info->spdif_base, AUDIO_TX_MODE, true);
+	info->spdev_info.fifo_mode = AUDIO_TX_MODE;
+
+	am_set_stream_state(&info->spdev_info, true);
 }
 
 static inline void stop_spdif_playback(struct snd_soc_dai *dai)
 {
 	struct tegra_spdif_info *info = dai->private_data;
 
-	spdif_fifo_enable(info->spdif_base, AUDIO_TX_MODE, false);
-	while (spdif_get_status(info->spdif_base) & SPDIF_STATUS_0_TX_BSY);
+	info->spdev_info.fifo_mode = AUDIO_TX_MODE;
+
+	am_set_stream_state(&info->spdev_info, false);
+	while (am_get_status(&info->spdev_info) & SPDIF_STATUS_0_TX_BSY);
 }
 
 /* capture */
@@ -91,46 +105,47 @@ static inline void start_spdif_capture(struct snd_soc_dai *dai)
 {
 	struct tegra_spdif_info *info = dai->private_data;
 
-	spdif_fifo_set_attention_level(info->spdif_base, AUDIO_RX_MODE,
-					SPDIF_FIFO_ATN_LVL_FOUR_SLOTS);
-	spdif_fifo_enable(info->spdif_base, AUDIO_RX_MODE, true);
+	info->spdev_info.fifo_mode = AUDIO_RX_MODE;
+	am_set_stream_state(&info->spdev_info, true);
 }
 
 static inline void stop_spdif_capture(struct snd_soc_dai *dai)
 {
 	struct tegra_spdif_info *info = dai->private_data;
 
-	spdif_fifo_enable(info->spdif_base, AUDIO_RX_MODE, false);
-	while (spdif_get_status(info->spdif_base) & SPDIF_STATUS_0_RX_BSY);
+	info->spdev_info.fifo_mode = AUDIO_RX_MODE;
+	am_set_stream_state(&info->spdev_info, false);
+	while (am_get_status(&info->spdev_info) & SPDIF_STATUS_0_RX_BSY);
 }
 
 static int tegra_spdif_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params,
 				struct snd_soc_dai *dai)
 {
-	struct tegra_spdif_info *info = dai->private_data;
 	int val;
-	unsigned int rate, sample_size;
+	am_stream_format_info fmt;
+	struct tegra_spdif_info *info = dai->private_data;
+
+	info->spdev_info.fifo_mode = AUDIO_RX_MODE;
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		info->spdev_info.fifo_mode = AUDIO_TX_MODE;
 
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		val = SPDIF_BIT_MODE_MODE16BIT;
-		sample_size = 16;
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
 		val = SPDIF_BIT_MODE_MODE24BIT;
-		sample_size = 16;
 		break;
 	case SNDRV_PCM_FORMAT_S32_LE:
 		val = SPDIF_BIT_MODE_MODERAW;
-		sample_size = 32;
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	spdif_set_bit_mode(info->spdif_base, val);
-	spdif_set_fifo_packed(info->spdif_base, 1);
+	fmt.bitsize = val;
 
 	switch (params_rate(params)) {
 	case 8000:
@@ -145,15 +160,41 @@ static int tegra_spdif_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	/* Min BCLK = samplerate * channel * bits per sample * 4 */
-	rate = val * params_channels(params) * sample_size * 4;
+	fmt.samplerate = val;
 
-	/* Ensure Spdif clk rate is atleast greater than min BCLK */
-	clk_set_rate(info->spdif_clk, rate);
-	if (clk_get_rate(info->spdif_clk) < rate)
-		clk_set_rate(info->spdif_clk, rate << 1);
+	switch (params_channels(params)) {
+	case 1:
+		val = AUDIO_CHANNEL_1;
+		break;
+	case 2:
+		val = AUDIO_CHANNEL_2;
+		break;
+	case 3:
+		val = AUDIO_CHANNEL_3;
+		break;
+	case 4:
+		val = AUDIO_CHANNEL_4;
+		break;
+	case 5:
+		val = AUDIO_CHANNEL_5;
+		break;
+	case 6:
+		val = AUDIO_CHANNEL_6;
+		break;
+	case 7:
+		val = AUDIO_CHANNEL_7;
+		break;
+	case 8:
+		val = AUDIO_CHANNEL_8;
+		break;
+	default:
+		return -EINVAL;
+	}
+	fmt.channels = val;
 
-	spdif_set_sample_rate(info->spdif_base, val);
+	fmt.buffersize = params_period_bytes(params);
+
+	am_set_stream_format(&info->spdev_info, &fmt);
 
 	return 0;
 }
@@ -203,17 +244,18 @@ static int tegra_spdif_trigger(struct snd_pcm_substream *substream, int cmd,
 #ifdef CONFIG_PM
 int tegra_spdif_suspend(struct snd_soc_dai *cpu_dai)
 {
-	struct tegra_spdif_info* info = cpu_dai->private_data;
-
-	spdif_get_all_regs(info->spdif_base, &info->spdif_regs);
+	struct tegra_spdif_info *info = cpu_dai->private_data;
+	am_suspend(&info->spdev_info);
 	return 0;
 }
 
 int tegra_spdif_resume(struct snd_soc_dai *cpu_dai)
 {
-	struct tegra_spdif_info* info = cpu_dai->private_data;
+	struct tegra_spdif_info *info = cpu_dai->private_data;
+	am_resume(&info->spdev_info);
 
-	spdif_set_all_regs(info->spdif_base, &info->spdif_regs);
+	/* disabled clock as startup code enable the clock */
+	am_clock_disable(&info->spdev_info);
 	return 0;
 }
 
@@ -227,10 +269,13 @@ static int tegra_spdif_startup(struct snd_pcm_substream *substream,
 {
 	struct tegra_spdif_info *info = dai->private_data;
 
-	if (!info->ref_count)
-		clk_enable(info->spdif_clk);
+	info->spdev_info.fifo_mode = AUDIO_RX_MODE;
 
-	info->ref_count++;
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+	info->spdev_info.fifo_mode = AUDIO_TX_MODE;
+
+	am_clock_enable(&info->spdev_info);
+
 	return 0;
 }
 
@@ -239,11 +284,12 @@ static void tegra_spdif_shutdown(struct snd_pcm_substream *substream,
 {
 	struct tegra_spdif_info *info = dai->private_data;
 
-	if (info->ref_count > 0)
-		info->ref_count--;
+	info->spdev_info.fifo_mode = AUDIO_RX_MODE;
 
-	if (!info->ref_count)
-		clk_disable(info->spdif_clk);
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		info->spdev_info.fifo_mode = AUDIO_TX_MODE;
+
+	am_clock_disable(&info->spdev_info);
 
 	return;
 }
@@ -290,6 +336,8 @@ static int tegra_spdif_driver_probe(struct platform_device *pdev)
 	int err = 0;
 	struct resource *res, *mem;
 	struct tegra_spdif_info *info;
+	am_dev_format_info dev_fmt;
+	am_stream_format_info strm_fmt;
 
 	pr_info("%s\n", __func__);
 
@@ -317,39 +365,33 @@ static int tegra_spdif_driver_probe(struct platform_device *pdev)
 	}
 
 	info->spdif_phys = res->start;
-	info->spdif_base = (unsigned long)ioremap(res->start, res->end - res->start + 1);
+	info->spdif_base = (unsigned long)ioremap(res->start,
+				res->end - res->start + 1);
 	if (!info->spdif_base) {
 		dev_err(&pdev->dev, "cannot remap iomem!\n");
 		err = -ENOMEM;
 		goto fail_release_mem;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_DMA, 0);
-	if (!res) {
-		dev_err(&pdev->dev, "no dma resource!\n");
-		err = -ENODEV;
-		goto fail_unmap_mem;
-	}
-	info->dma_req_sel = res->start;
+	memset(&strm_fmt, 0, sizeof(strm_fmt));
+	strm_fmt.bitsize  = SPDIF_BIT_MODE_MODE16BIT;
+	strm_fmt.channels = AUDIO_CHANNEL_2;
+	strm_fmt.samplerate = info->pdata->dev_clk_rate >> 7;
 
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!res) {
-		dev_err(&pdev->dev, "no irq resource!\n");
-		err = -ENODEV;
-		goto fail_unmap_mem;
-	}
-	info->irq = res->start;
 
-	info->spdif_clk = clk_get(&pdev->dev, NULL);
-	if (IS_ERR(info->spdif_clk)) {
-		err = PTR_ERR(info->spdif_clk);
-		goto fail_unmap_mem;
-	}
-	clk_enable(info->spdif_clk);
-	clk_set_rate(info->spdif_clk, info->pdata->spdif_clk_rate);
+	memset(&dev_fmt, 0, sizeof(dev_fmt));
+	dev_fmt.clkrate = info->pdata->dev_clk_rate;
+	info->spdev_info.base = info->spdif_base;
+	info->spdev_info.phy_base = info->spdif_phys;
 
-	spdif_initialize(info->spdif_base, AUDIO_TX_MODE);
-	spdif_initialize(info->spdif_base, AUDIO_RX_MODE);
+	info->spdev_info.dev_type = AUDIO_SPDIF_DEVICE;
+	info->spdev_info.dev_id = pdev->id;
+
+	info->spdev_info.fifo_mode = AUDIO_RX_MODE;
+	am_device_init(&info->spdev_info, (void *)&dev_fmt, 0);
+
+	info->spdev_info.fifo_mode = AUDIO_TX_MODE;
+	am_device_init(&info->spdev_info, (void *)&dev_fmt, 0);
 
 	tegra_spdif_dai.dev = &pdev->dev;
 	tegra_spdif_dai.private_data = info;
@@ -357,8 +399,6 @@ static int tegra_spdif_driver_probe(struct platform_device *pdev)
 	if (err)
 		goto fail_unmap_mem;
 
-	/* Disable SPDIF clock to save power */
-	clk_disable(info->spdif_clk);
 	return 0;
 
 fail_unmap_mem:

@@ -1,19 +1,22 @@
 /*
  * tegra_soc.h  --  SoC audio for tegra
  *
- * (c) 2010-2011 Nvidia Graphics Pvt. Ltd.
- *  http://www.nvidia.com
+* Copyright (c) 2009-2011, NVIDIA Corporation.
  *
- * Copyright 2007 Wolfson Microelectronics PLC.
- * Author: Graeme Gregory
- *         graeme.gregory@wolfsonmicro.com or linux@wolfsonmicro.com
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * version 2 as published by the Free Software Foundation.
  *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
  *
- */
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA
+ * */
 
 #ifndef __TEGRA_AUDIO__
 #define __TEGRA_AUDIO__
@@ -36,8 +39,7 @@
 #include <linux/tegra_audio.h>
 #include <linux/regulator/consumer.h>
 #include <mach/iomap.h>
-#include <mach/tegra2_i2s.h>
-#include <mach/spdif.h>
+#include <mach/audio_manager.h>
 #include <mach/irqs.h>
 #include <mach/pinmux.h>
 #include <mach/audio.h>
@@ -67,27 +69,22 @@
 #define STATE_EXITED	3
 #define STATE_INVALID	4
 
-#define I2S_I2S_FIFO_TX_BUSY	I2S_I2S_STATUS_FIFO1_BSY
-#define I2S_I2S_FIFO_TX_QS	I2S_I2S_STATUS_QS_FIFO1
-#define I2S_I2S_FIFO_RX_BUSY	I2S_I2S_STATUS_FIFO2_BSY
-#define I2S_I2S_FIFO_RX_QS	I2S_I2S_STATUS_QS_FIFO2
-
-#define I2S1_CLK 		11289600
+#define I2S1_CLK 		12288000
 #define I2S2_CLK 		2000000
-#define TEGRA_DEFAULT_SR	44100
+#define TEGRA_DEFAULT_SR	48000
+#define TEGRA_INT_I2SLOOPBACK_ON	1
+#define TEGRA_INT_I2SLOOPBACK_OFF	0
 
-#define TEGRA_SAMPLE_RATES \
-	(SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 | \
-	SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_88200 | SNDRV_PCM_RATE_96000)
+#define TEGRA_SAMPLE_RATES (SNDRV_PCM_RATE_8000_96000)
 #define TEGRA_VOICE_SAMPLE_RATES SNDRV_PCM_RATE_8000
 
-#define DMA_STEP_SIZE_MIN 8
-#define DMA_REQ_QCOUNT 2
+#define DMA_STEP_SIZE_MIN	8
+#define DMA_REQ_QCOUNT		2
 
 #define TEGRA_AUDIO_OFF		0x0
 #define TEGRA_HEADPHONE		0x1
 #define TEGRA_LINEOUT		0x2
-#define TEGRA_SPK		0x4
+#define TEGRA_SPK			0x4
 #define TEGRA_EAR_SPK		0x8
 #define TEGRA_INT_MIC		0x10
 #define TEGRA_EXT_MIC		0x20
@@ -95,18 +92,21 @@
 #define TEGRA_HEADSET_OUT	0x80
 #define TEGRA_HEADSET_IN	0x100
 
+#define TEGRA_BT_CODEC_ID		0
+#define TEGRA_BB_CODEC_ID		1
+#define TEGRA_SPDIF_CODEC_ID	2
+
 struct tegra_dma_channel;
 
 struct tegra_runtime_data {
 	struct snd_pcm_substream *substream;
 	int size;
 	int dma_pos;
-	struct tegra_dma_req dma_req[DMA_REQ_QCOUNT];
-	int dma_reqid_head;
-	int dma_reqid_tail;
-	volatile int state;
+	int dma_tail_idx;
+	int dma_head_idx;
 	int period_index;
 	int dma_state;
+	struct tegra_dma_req dma_req[DMA_REQ_QCOUNT];
 	struct tegra_dma_channel *dma_chan;
 #ifdef CONFIG_HAS_WAKELOCK
 	struct wake_lock wake_lock;
@@ -118,6 +118,7 @@ struct tegra_audio_data {
 	struct snd_soc_codec *codec;
 	struct clk *dap_mclk;
 	bool init_done;
+	enum snd_soc_bias_level bias_level;
 
 	int play_device;
 	int capture_device;
@@ -126,16 +127,19 @@ struct tegra_audio_data {
 	int codec_con;
 };
 
-struct wired_jack_conf {
-	int hp_det_n;
-	int en_mic_int;
-	int en_mic_ext;
-	int cdc_irq;
-	int en_spkr;
-	const char *spkr_amp_reg;
-	struct regulator *amp_reg;
-	int amp_reg_enabled;
+
+/* i2s controller */
+struct tegra_i2s_info {
+	struct platform_device *pdev;
+	struct tegra_audio_platform_data *pdata;
+
+	unsigned int bit_format;
+	bool i2s_master;
+	int ref_count;
+	aud_dev_info  i2sdev_info;
+	struct das_regs_cache das_regs;
 };
+
 
 void tegra_ext_control(struct snd_soc_codec *codec, int new_con);
 int tegra_controls_init(struct snd_soc_codec *codec);
@@ -150,9 +154,11 @@ void setup_i2s_dma_request(struct snd_pcm_substream *substream,
 			struct tegra_dma_req *req,
 			void (*dma_callback)(struct tegra_dma_req *req),
 			void *dma_data);
+void free_i2s_dma_request(struct snd_pcm_substream *substream);
+
 void setup_spdif_dma_request(struct snd_pcm_substream *substream,
 			struct tegra_dma_req *req,
 			void (*dma_callback)(struct tegra_dma_req *req),
 			void *dma_data);
-
+void free_spdif_dma_request(struct snd_pcm_substream *substream);
 #endif

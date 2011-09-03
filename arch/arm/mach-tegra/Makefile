@@ -16,6 +16,7 @@ obj-y                                   += fuse.o
 obj-y                                   += kfuse.o
 ifeq ($(CONFIG_SND_TEGRA_SOC),y)
 obj-$(CONFIG_ARCH_TEGRA_2x_SOC)         += tegra2_i2s.o
+obj-y                                   += audio_manager.o
 else
 obj-y                                   += tegra_i2s_audio.o
 obj-y                                   += tegra_spdif_audio.o
@@ -23,7 +24,7 @@ endif
 obj-y                                   += spdif.o
 obj-y                                   += tegra_das.o
 obj-y                                   += mc.o
-obj-$(CONFIG_TEGRA_STAT_MON)			+= tegra2_statmon.o
+obj-$(CONFIG_TEGRA_STAT_MON)		+= tegra2_statmon.o
 obj-$(CONFIG_USB_SUPPORT)               += usb_phy.o
 obj-$(CONFIG_FIQ)                       += fiq.o
 obj-$(CONFIG_TEGRA_FIQ_DEBUGGER)        += tegra_fiq_debugger.o

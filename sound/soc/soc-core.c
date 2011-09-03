@@ -705,7 +705,8 @@ static int soc_pcm_hw_params(struct snd_pcm_substream *substream,
 	if (machine->ops && machine->ops->hw_params) {
 		ret = machine->ops->hw_params(substream, params);
 		if (ret < 0) {
-			printk(KERN_ERR "asoc: machine hw_params failed\n");
+			printk(KERN_ERR "asoc: machine hw_params failed(%d)\n",
+				ret);
 			goto out;
 		}
 	}
@@ -738,7 +739,6 @@ static int soc_pcm_hw_params(struct snd_pcm_substream *substream,
 	}
 
 	machine->rate = params_rate(params);
-
 out:
 	mutex_unlock(&pcm_mutex);
 	return ret;

@@ -52,7 +52,7 @@
 
 #include <mach/dma.h>
 #include <mach/iomap.h>
-#include <mach/i2s.h>
+#include <mach/tegra2_i2s.h>
 #include <mach/audio.h>
 #include <mach/irqs.h>
 

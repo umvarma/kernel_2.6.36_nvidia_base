@@ -130,16 +130,26 @@ static int wired_switch_notify(struct notifier_block *self,
 
 void tegra_jack_suspend(void)
 {
-	snd_soc_jack_free_gpios(tegra_wired_jack,
-				ARRAY_SIZE(wired_jack_gpios),
-				wired_jack_gpios);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(wired_jack_gpios); i++)
+		disable_irq(gpio_to_irq(wired_jack_gpios[i].gpio));
 }
 
 void tegra_jack_resume(void)
 {
-	snd_soc_jack_add_gpios(tegra_wired_jack,
-				     ARRAY_SIZE(wired_jack_gpios),
-				     wired_jack_gpios);
+	int i, val;
+
+	for (i = 0; i < ARRAY_SIZE(wired_jack_gpios); i++) {
+		val = gpio_get_value(wired_jack_gpios[i].gpio);
+		val = wired_jack_gpios[i].invert ? !val : val;
+		val = val ? wired_jack_gpios[i].report : 0;
+
+		snd_soc_jack_report(tegra_wired_jack, val,
+			wired_jack_gpios[i].report);
+
+		enable_irq(gpio_to_irq(wired_jack_gpios[i].gpio));
+	}
 }
 
 static struct notifier_block wired_switch_nb = {
@@ -151,14 +161,18 @@ static struct notifier_block wired_switch_nb = {
 static int tegra_wired_jack_probe(struct platform_device *pdev)
 {
 	int ret;
-	int hp_det_n, cdc_irq;
-	int en_mic_int, en_mic_ext;
-	int en_spkr;
-	struct tegra_wired_jack_conf *pdata;
+	int hp_det_n = 0, cdc_irq = 0;
+	int en_mic_int = -1, en_mic_ext = -1;
+	int en_spkr = 0;
+	struct wired_jack_conf *pdata;
 
-	pdata = (struct tegra_wired_jack_conf *)pdev->dev.platform_data;
-	if (!pdata || !pdata->hp_det_n || !pdata->en_spkr ||
-	    !pdata->cdc_irq || !pdata->en_mic_int || !pdata->en_mic_ext) {
+	pdata = (struct wired_jack_conf *)pdev->dev.platform_data;
+
+	if (!pdata || !pdata->hp_det_n
+#if defined(CONFIG_ARCH_TEGRA_2x_SOC)
+	|| !pdata->en_mic_int || !pdata->en_mic_ext
+#endif
+	|| !pdata->cdc_irq || !pdata->en_spkr) {
 		pr_err("Please set up gpio pins for jack.\n");
 		return -EBUSY;
 	}
@@ -180,6 +194,7 @@ static int tegra_wired_jack_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+#if defined(CONFIG_ARCH_TEGRA_2x_SOC)
 	/* Mic switch controlling pins */
 	en_mic_int = pdata->en_mic_int;
 	en_mic_ext = pdata->en_mic_ext;
@@ -188,26 +203,41 @@ static int tegra_wired_jack_probe(struct platform_device *pdev)
 	if (ret) {
 		pr_err("Could NOT get gpio for internal mic controlling.\n");
 		gpio_free(en_mic_int);
+		en_mic_int = -1;
 	}
-	gpio_direction_output(en_mic_int, 0);
-	gpio_export(en_mic_int, false);
+
+	if (en_mic_int != -1) {
+		gpio_direction_output(en_mic_int, 0);
+		gpio_export(en_mic_int, false);
+	}
 
 	ret = gpio_request(en_mic_ext, "en_mic_ext");
 	if (ret) {
 		pr_err("Could NOT get gpio for external mic controlling.\n");
 		gpio_free(en_mic_ext);
+		en_mic_ext = -1;
 	}
-	gpio_direction_output(en_mic_ext, 0);
-	gpio_export(en_mic_ext, false);
+
+	if (en_mic_ext != -1) {
+		gpio_direction_output(en_mic_ext, 0);
+		gpio_export(en_mic_ext, false);
+	}
+
+#endif
 
 	en_spkr = pdata->en_spkr;
 	ret = gpio_request(en_spkr, "en_spkr");
 	if (ret) {
 		pr_err("Could NOT set up gpio pin for amplifier.\n");
 		gpio_free(en_spkr);
+		en_spkr = -1;
 	}
-	gpio_direction_output(en_spkr, 0);
-	gpio_export(en_spkr, false);
+
+
+	if (en_spkr != -1) {
+		gpio_direction_output(en_spkr, 0);
+		gpio_export(en_spkr, false);
+	}
 
 	if (pdata->spkr_amp_reg)
 		tegra_wired_jack_conf.amp_reg =

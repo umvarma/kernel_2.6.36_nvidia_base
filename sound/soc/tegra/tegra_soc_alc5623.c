@@ -19,71 +19,71 @@
 /* #define DEBUG */
  
 #include "tegra_soc.h"
-#include <linux/gpio.h>
+#include "../codecs/alc5623.h"
 #include <sound/soc-dapm.h>
 #include <linux/regulator/consumer.h>
-#include <sound/jack.h>
-#include <mach/adam_audio.h>
 
-#define DRV_NAME "tegra-snd-adam"
+#include <linux/types.h>
+#include <sound/jack.h>
+#include <linux/switch.h>
+#include <mach/gpio.h>
+#include <mach/audio.h>
+#include <linux/delay.h>
+
+#define DRV_NAME "tegra-snd-alc5623"
+#define TEGRA_GPIO_PW2     178
+
+static struct snd_soc_jack* tegra_jack = NULL;
+
+static struct platform_device *tegra_snd_device;
+static struct regulator* alc5623_reg;
+
+extern struct snd_soc_dai tegra_i2s_dai[];
+extern struct snd_soc_dai tegra_spdif_dai;
+extern struct snd_soc_dai tegra_generic_codec_dai[];
+extern struct snd_soc_platform tegra_soc_platform;
 
 /* exported by the ALC5623 codec */
 extern struct snd_soc_dai alc5623_dai;
 extern struct snd_soc_codec_device soc_codec_dev_alc5623;
-
-/* possible audio sources */
-enum adam_audio_device {
-	ADAM_AUDIO_DEVICE_NONE	   = 0,		/* no device */
-	ADAM_AUDIO_DEVICE_BLUETOOTH = 0x01,	/* bluetooth */
-	ADAM_AUDIO_DEVICE_VOICE	   = 0x02,	/* cell phone audio */
-	ADAM_AUDIO_DEVICE_HIFI	   = 0x04,	/* normal speaker/headphone audio */
-	
-	ADAM_AUDIO_DEVICE_MAX	   = 0x07	/* all audio sources */
-};
-
-struct adam_audio_priv {
-	struct clk* 		  dap_mclk;			/* DAP clock */
-	
-	struct snd_soc_jack   tegra_jack;		/* jack detection */
-	bool				  init_done;		/* init done */
-	int 				  play_device;		/* Playback devices bitmask */
-	int 				  capture_device;	/* Capture devices bitmask */
-	bool				  is_call_mode;		/* if we are in a call mode */
-	int					  gpio_hp_det;		/* GPIO used to detect Headphone plugged in */
-};
 
 /* mclk required for each sampling frequency */
 static const struct {
 	unsigned int mclk;
 	unsigned short srate;
 } clocktab[] = {
-	/* 8k */
-	{16384000,  8000},
-	{24576000,  8000},
+        /* 8k */
+        { 8192000,  8000},
+        {12288000,  8000},
+        {24576000,  8000},
 
-	/* 11.025k */
-	{16934400, 11025},
-	{22579200, 11025},
+        /* 11.025k */
+        {11289600, 11025},
+        {16934400, 11025},
+        {22579200, 11025},
 
-	/* 16k */
-	{16384000, 16000},
-	{24576000, 16000},
+        /* 16k */
+        {12288000, 16000},
+        {16384000, 16000},
+        {24576000, 16000},
 
-	/* 22.05k */	
-	{16934400, 22050},
-	{22579200, 22050},
+        /* 22.05k */
+        {11289600, 22050},
+        {16934400, 22050},
+        {22579200, 22050},
 
-	/* 32k */
-	{16384000, 32000},
-	{24576000, 32000},
+        /* 32k */
+        {12288000, 32000},
+        {16384000, 32000},
+        {24576000, 32000},
 
-	/* 44.1k */
-	{16934400, 44100},
-	{22579200, 44100},
+        /* 44.1k */
+        {11289600, 44100},
+        {22579200, 44100},
 
-	/* 48k */
-	{18432000, 48000},
-	{24576000, 48000},
+        /* 48k */
+        {12288000, 48000},
+        {24576000, 48000},
 };
 
 
@@ -95,22 +95,24 @@ static int tegra_hifi_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *codec_dai 	= rtd->dai->codec_dai;
 	struct snd_soc_dai *cpu_dai 	= rtd->dai->cpu_dai;
-	struct adam_audio_priv* ctx 	= rtd->socdev->codec_data;
-	
-	
-	int dai_flag = 0, sys_clk;
-	int err;
-	int i;	
+	struct snd_soc_codec *codec = codec_dai->codec;	
+	int dai_flag = 0, sys_clk, codec_is_master;
+        unsigned int srate, value;
+        int i, err;
+        enum dac_dap_data_format data_fmt;
 
-	/* Get the requested sampling rate */
-	unsigned int srate = params_rate(params);
-	
+        /* Get the requested sampling rate */
+        srate = params_rate(params);
+
 	/* I2S <-> DAC <-> DAS <-> DAP <-> CODEC
 	   -If DAP is master, codec will be slave */
-	int codec_is_master = !tegra_das_is_port_master(tegra_audio_codec_type_hifi);
-	
-	/* Get DAS dataformat - DAP is connecting to codec */
-	enum dac_dap_data_format data_fmt = tegra_das_get_codec_data_fmt(tegra_audio_codec_type_hifi);
+	codec_is_master = !tegra_das_is_port_master(tegra_audio_codec_type_hifi);
+	if (codec_is_master)
+                dai_flag |= SND_SOC_DAIFMT_CBS_CFS;
+        else
+                dai_flag |= SND_SOC_DAIFMT_CBM_CFM;
+
+        data_fmt = tegra_das_get_codec_data_fmt(tegra_audio_codec_type_hifi);
 
 	/* We are supporting DSP and I2s format for now */
 	if (data_fmt & dac_dap_data_format_i2s)
@@ -118,13 +120,13 @@ static int tegra_hifi_hw_params(struct snd_pcm_substream *substream,
 	else
 		dai_flag |= SND_SOC_DAIFMT_DSP_A;
 	
-	if (codec_is_master)
-		dai_flag |= SND_SOC_DAIFMT_CBM_CFM; /* codec is master */
-	else
-		dai_flag |= SND_SOC_DAIFMT_CBS_CFS;
-	
-	
 	pr_debug("%s(): format: 0x%08x\n", __FUNCTION__,params_format(params));
+
+	err = snd_soc_dai_set_fmt(codec_dai, dai_flag);
+	if (err < 0) {
+		pr_err("codec_dai fmt not set \n");
+		return err;
+	}
 
 	/* Set the CPU dai format. This will also set the clock rate in master mode */
 	err = snd_soc_dai_set_fmt(cpu_dai, dai_flag);
@@ -133,22 +135,13 @@ static int tegra_hifi_hw_params(struct snd_pcm_substream *substream,
 		return err;
 	}
 
-	err = snd_soc_dai_set_fmt(codec_dai, dai_flag);
-	if (err < 0) {
-		pr_err("codec_dai fmt not set \n");
-		return err;
-	}
-	
-	/* Get system clock */
-	sys_clk = clk_get_rate(ctx->dap_mclk);
+        sys_clk = tegra_das_get_mclk_rate();
+        err = snd_soc_dai_set_sysclk(codec_dai, 0, sys_clk, SND_SOC_CLOCK_IN);
+        if (err < 0) {
+                pr_err("codec_dai clock not set\n");
+                return err;
+        }
 
-	/* Set CPU sysclock as the same - in Tegra, seems to be a NOP */
-	err = snd_soc_dai_set_sysclk(cpu_dai, 0, sys_clk, SND_SOC_CLOCK_IN);
-	if (err < 0) {
-		pr_err("cpu_dai clock not set\n");
-		return err;
-	}
-	
 	if (codec_is_master) {
 		pr_debug("%s(): codec in master mode\n",__FUNCTION__);
 		
@@ -215,8 +208,6 @@ static int tegra_voice_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *codec_dai 	= rtd->dai->codec_dai;
 	struct snd_soc_dai *cpu_dai 	= rtd->dai->cpu_dai;
-	struct adam_audio_priv* ctx 	= rtd->socdev->codec_data;
-	
 	int dai_flag = 0, sys_clk;
 	int err;
 
@@ -253,7 +244,7 @@ static int tegra_voice_hw_params(struct snd_pcm_substream *substream,
 	}
 	
 	/* Get system clock */
-	sys_clk = clk_get_rate(ctx->dap_mclk);
+	sys_clk = tegra_das_get_mclk_rate();
 
 	/* Set CPU sysclock as the same - in Tegra, seems to be a NOP */
 	err = snd_soc_dai_set_sysclk(cpu_dai, 0, sys_clk, SND_SOC_CLOCK_IN);
@@ -298,20 +289,14 @@ static int tegra_soc_suspend_pre(struct platform_device *pdev, pm_message_t stat
 
 static int tegra_soc_suspend_post(struct platform_device *pdev, pm_message_t state)
 {
-	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct adam_audio_priv* ctx = socdev->codec_data;
-
-	clk_disable(ctx->dap_mclk);
+	tegra_das_disable_mclk();
 
 	return 0;
 }
 
 static int tegra_soc_resume_pre(struct platform_device *pdev)
 {
-	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct adam_audio_priv* ctx = socdev->codec_data;
-
-	clk_enable(ctx->dap_mclk);
+	tegra_das_enable_mclk();
 
 	return 0;
 }
@@ -368,6 +353,7 @@ void tegra_ext_control(struct snd_soc_codec *codec, int new_con)
 
 }
 
+#if 0
 static void tegra_audio_route(struct adam_audio_priv* ctx,
 			      int play_device, int capture_device)
 {
@@ -395,7 +381,6 @@ static void tegra_audio_route(struct adam_audio_priv* ctx,
 	ctx->capture_device = capture_device;
 }
 
-#if 0
 static int tegra_play_route_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
@@ -445,7 +430,6 @@ struct snd_kcontrol_new tegra_play_route_control = {
 	.get = tegra_play_route_get,
 	.put = tegra_play_route_put
 };
-#endif
 
 static int tegra_capture_route_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
@@ -567,6 +551,8 @@ static struct snd_kcontrol_new tegra_call_mode_control = {
 	.put = tegra_call_mode_put
 };
 
+#endif
+
 #ifndef ADAM_MANUAL_CONTROL_OF_OUTPUTDEVICE
 
 /* ------- Headphone jack autodetection  -------- */
@@ -590,7 +576,7 @@ static struct snd_soc_jack_gpio tegra_jack_gpios[] = {
 		.name = "headphone detect",
 		.report = SND_JACK_HEADPHONE,
 		.debounce_time = 150,
-		/*.gpio is filled in initialization from platform data */
+		.gpio = TEGRA_GPIO_PW2,
 	}
 };
 
@@ -623,11 +609,13 @@ static const struct snd_kcontrol_new tegra_controls[] = {
 
 static int tegra_codec_init(struct snd_soc_codec *codec)
 {
-	struct adam_audio_priv* ctx = codec->socdev->codec_data;
+	struct tegra_audio_data* audio_data = codec->socdev->codec_data;
+
 	int ret = 0;
 
-	if (!ctx->init_done) {
+	if (!audio_data->init_done) {
 		
+#if 0
 		/* Get and enable the DAP clock */
 		ctx->dap_mclk = tegra_das_get_dap_mclk();
 		if (!ctx->dap_mclk) {
@@ -638,7 +626,24 @@ static int tegra_codec_init(struct snd_soc_codec *codec)
 
 		/* Store the GPIO used to detect headphone */
 		tegra_jack_gpios[0].gpio = ctx->gpio_hp_det;
+#else
 
+                ret = tegra_das_open();
+                if (ret) {
+                        pr_err(" Failed get dap mclk \n");
+                        ret = -ENODEV;
+                        goto alc5623_init_fail;
+                }
+
+                ret = tegra_das_enable_mclk();
+                if (ret) {
+                        pr_err(" Failed to enable dap mclk \n");
+                        ret = -ENODEV;
+                        goto alc5623_init_fail;
+                }
+
+
+#endif
 		/* Add tegra specific widgets */
 		snd_soc_dapm_new_controls(codec, tegra_dapm_widgets,
 					ARRAY_SIZE(tegra_dapm_widgets));
@@ -649,7 +654,7 @@ static int tegra_codec_init(struct snd_soc_codec *codec)
 					ARRAY_SIZE(tegra_controls));
 		if (ret < 0) {
 			pr_err("Failed to register controls\n");
-			return ret;
+                        goto alc5623_init_fail;
 		}
 #endif
 					
@@ -657,22 +662,13 @@ static int tegra_codec_init(struct snd_soc_codec *codec)
 		snd_soc_dapm_add_routes(codec, audio_map,
 					ARRAY_SIZE(audio_map));
 
-		/* make sure to register the dapm widgets */
-		snd_soc_dapm_new_widgets(codec);
-					
-		/* Set endpoints to not connected */
-		snd_soc_dapm_nc_pin(codec, "LINEINL");
-		snd_soc_dapm_nc_pin(codec, "LINEINR");
-		snd_soc_dapm_nc_pin(codec, "AUXINL");
-		snd_soc_dapm_nc_pin(codec, "AUXINR");
-		snd_soc_dapm_nc_pin(codec, "MIC2");
-		snd_soc_dapm_nc_pin(codec, "SPKOUT");
-		snd_soc_dapm_nc_pin(codec, "SPKOUTN");
 
-		/* Set endpoints to default off mode */
-		snd_soc_dapm_enable_pin(codec, "Internal Speaker");
-		snd_soc_dapm_enable_pin(codec, "Internal Mic");
-		snd_soc_dapm_disable_pin(codec, "Headphone Jack");
+		/* Add jack detection */
+                ret = tegra_jack_init(codec);
+                if (ret < 0) {
+                        pr_err("Failed in jack init \n");
+                        goto alc5623_init_fail;
+                }
 
                 /* Default to OFF */
                 tegra_ext_control(codec, TEGRA_AUDIO_OFF);
@@ -680,70 +676,79 @@ static int tegra_codec_init(struct snd_soc_codec *codec)
                 ret = tegra_controls_init(codec);
                 if (ret < 0) {
                         pr_err("Failed in controls init \n");
-                        return ret;
+                        goto alc5623_init_fail;
                 }
 	
-		ret = snd_soc_dapm_sync(codec);
-		if (ret) {
-			pr_err("Failed to sync\n");
-			return ret;
-		}
-
 #ifndef ADAM_MANUAL_CONTROL_OF_OUTPUTDEVICE
-		/* Headphone jack detection */		
-		ret = snd_soc_jack_new(codec->socdev->card, "Headphone Jack", SND_JACK_HEADPHONE,
-				 &ctx->tegra_jack);
-		if (ret)
-			return ret;
-			 
-		ret = snd_soc_jack_add_pins(&ctx->tegra_jack,
-			      ARRAY_SIZE(tegra_jack_pins),
-			      tegra_jack_pins);
-		if (ret)
-			return ret;
-				  
-		ret = snd_soc_jack_add_gpios(&ctx->tegra_jack,
-			       ARRAY_SIZE(tegra_jack_gpios),
-			       tegra_jack_gpios);
-		if (ret)
-			return ret;
-#endif
+		/* Headphone jack detection */
+		if(!tegra_jack) {
+                        tegra_jack = kzalloc(sizeof(*tegra_jack), GFP_KERNEL);
+                        if (!tegra_jack) {
+                                pr_err("failed to allocate tegra-jack\n");
+                                ret = -ENOMEM;
+                                goto alc5623_init_fail;
+                        }
 
-		ctx->init_done = 1;
+			ret = snd_soc_jack_new(codec->socdev->card, "Headphone Jack", SND_JACK_HEADPHONE,
+				 tegra_jack);
+			if (ret)
+				goto failed;
+			 
+			ret = snd_soc_jack_add_pins(tegra_jack,
+				      ARRAY_SIZE(tegra_jack_pins),
+				      tegra_jack_pins);
+			if (ret)
+				goto failed;
+				  
+			ret = snd_soc_jack_add_gpios(tegra_jack,
+				       ARRAY_SIZE(tegra_jack_gpios),
+				       tegra_jack_gpios);
+			if (ret)
+				goto failed;
+		}
+#endif
+		
+		audio_data->codec = codec;
+		audio_data->init_done = 1;
 	}
 
 	return ret;
+
+failed:
+        kfree(tegra_jack);
+
+alc5623_init_fail:
+        tegra_das_disable_mclk();
+        tegra_das_close();
+        tegra_jack = NULL;
+        return ret;
+
 }
 
-extern struct snd_soc_dai tegra_generic_codec_dai[];
-extern struct snd_soc_dai tegra_i2s_dai[];
-extern struct snd_soc_dai tegra_spdif_dai;
+#define TEGRA_CREATE_SOC_DAI_LINK(xname, xstreamname,   \
+                        xcpudai, xcodecdai, xops)       \
+{                                                       \
+        .name = xname,                                  \
+        .stream_name = xstreamname,                     \
+        .cpu_dai = xcpudai,                             \
+        .codec_dai = xcodecdai,                         \
+        .init = tegra_codec_init,                       \
+        .ops = xops,                                    \
+}
+
 
 static struct snd_soc_dai_link tegra_soc_dai[] = {
-	{
-		.name = "ALC5623",
-		.stream_name = "ALC5623 HiFi",
-		.cpu_dai = &tegra_i2s_dai[0],
-		.codec_dai = &alc5623_dai,
-		.init = tegra_codec_init,
-		.ops = &tegra_hifi_ops,
-	},
-	{
-		.name = "Tegra-generic",
-		.stream_name = "Tegra Generic Voice",
-		.cpu_dai = &tegra_i2s_dai[1],
-		.codec_dai = &tegra_generic_codec_dai[0],
-		.init = tegra_codec_init,
-		.ops = &tegra_voice_ops,
-	},
-	{
-		.name = "Tegra-spdif",
-		.stream_name = "Tegra Spdif",
-		.cpu_dai = &tegra_spdif_dai,
-		.codec_dai = &tegra_generic_codec_dai[1],
-		.init = tegra_codec_init,
-		.ops = &tegra_spdif_ops,
-	},
+#if defined(CONFIG_ARCH_TEGRA_2x_SOC)
+        TEGRA_CREATE_SOC_DAI_LINK("ALC5623", "ALC5623 HiFi",
+                &tegra_i2s_dai[0], &alc5623_dai,
+                &tegra_hifi_ops),
+        TEGRA_CREATE_SOC_DAI_LINK("Tegra-generic", "",
+                &tegra_i2s_dai[1], &tegra_generic_codec_dai[0],
+                &tegra_voice_ops),
+        TEGRA_CREATE_SOC_DAI_LINK("Tegra-spdif", "Tegra Spdif",
+                &tegra_spdif_dai, &tegra_generic_codec_dai[1],
+                &tegra_spdif_ops),
+#endif
 };
 
 static struct tegra_audio_data audio_data = {
@@ -756,9 +761,8 @@ static struct tegra_audio_data audio_data = {
 
 
 /* The Tegra card definition */
-extern struct snd_soc_platform tegra_soc_platform;
 static struct snd_soc_card tegra_snd_soc = {
-	.name = "tegra",
+	.name = "tegra-alc5623",
 	.platform 	= &tegra_soc_platform,
 	.dai_link 	= tegra_soc_dai,
 	.num_links 	= ARRAY_SIZE(tegra_soc_dai),
@@ -776,11 +780,8 @@ static struct snd_soc_device tegra_snd_devdata = {
 	.codec_data = &audio_data,
 };
 
-/* initialization */
 
-static struct platform_device *tegra_snd_device;
-
-
+#if 0
 static __devinit int tegra_snd_adam_probe(struct platform_device *pdev)
 {
 	struct adam_audio_platform_data* pdata;
@@ -801,7 +802,7 @@ static __devinit int tegra_snd_adam_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 	platform_set_drvdata(pdev, ctx); /* Store it as platform data */
-	tegra_snd_devdata.codec_data = ctx;
+	//tegra_snd_devdata.codec_data = ctx;
 	
 	/* Fill in the GPIO used to detect the headphone */
 	ctx->gpio_hp_det = pdata->gpio_hp_det;
@@ -836,41 +837,74 @@ fail:
 
 	return ret;
 }
+#endif
 
-static int __devexit tegra_snd_adam_remove(struct platform_device *pdev)
+static int __init tegra_init(void)
 {
-	struct adam_audio_priv *ctx = platform_get_drvdata(pdev);
-	
-	platform_device_unregister(tegra_snd_device);
-	
-	kfree(ctx);
-	platform_set_drvdata(pdev,NULL);
-	
-	return 0;
+        int ret = 0;
+
+        tegra_snd_device = platform_device_alloc("soc-audio", -1);
+        if (!tegra_snd_device) {
+                pr_err("failed to allocate soc-audio \n");
+                return ENOMEM;
+        }
+
+        platform_set_drvdata(tegra_snd_device, &tegra_snd_devdata);
+        tegra_snd_devdata.dev = &tegra_snd_device->dev;
+        ret = platform_device_add(tegra_snd_device);
+        if (ret) {
+                pr_err("audio device could not be added \n");
+                goto fail;
+        }
+
+#if 0
+        alc5623_reg = regulator_get(NULL, "avddio_audio");
+        if (IS_ERR(alc5623_reg)) {
+                ret = PTR_ERR(alc5623_reg);
+                pr_err("unable to get alc5623 regulator\n");
+                goto fail;
+        }
+
+        ret = regulator_enable(alc5623_reg);
+        if (ret) {
+                pr_err("alc5623 regulator enable failed\n");
+                goto err_put_regulator;
+        }
+#endif
+        return 0;
+
+fail:
+        if (tegra_snd_device) {
+                platform_device_put(tegra_snd_device);
+                tegra_snd_device = 0;
+        }
+
+        return ret;
+
+err_put_regulator:
+        regulator_put(alc5623_reg);
+        return ret;
 }
 
-static struct platform_driver tegra_snd_adam_driver = {
-	.driver = {
-		.name = DRV_NAME,
-		.owner = THIS_MODULE,
-	},
-	.probe = tegra_snd_adam_probe,
-	.remove = __devexit_p(tegra_snd_adam_remove),
-};
 
-static int __init snd_tegra_adam_init(void)
+static void __exit tegra_exit(void)
 {
-	return platform_driver_register(&tegra_snd_adam_driver);
-}
-module_init(snd_tegra_adam_init);
+        platform_device_unregister(tegra_snd_device);
 
-static void __exit snd_tegra_adam_exit(void)
-{
-	platform_driver_unregister(&tegra_snd_adam_driver);
-}
-module_exit(snd_tegra_adam_exit);
+#if 0
+        regulator_disable(alc5623_reg);
+        regulator_put(alc5623_reg);
+#endif
 
-MODULE_AUTHOR("Eduardo José Tagle <ejtagle@tutopia.com>");
-MODULE_DESCRIPTION("Shuttle machine ASoC driver");
+        if (tegra_jack) {
+                kfree(tegra_jack);
+                tegra_jack = NULL;
+        }
+}
+
+module_init(tegra_init);
+module_exit(tegra_exit);
+
+MODULE_DESCRIPTION("Adam machine ASoC driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:" DRV_NAME);

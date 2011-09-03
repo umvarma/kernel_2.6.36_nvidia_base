@@ -80,6 +80,7 @@
 
 #define MAX_CONNECTIONLINES 8
 
+#ifdef CONFIG_ARCH_TEGRA_2x_SOC
 typedef enum tegra_das_port_t {
 	tegra_das_port_none = 0,
 	tegra_das_port_dap1,
@@ -94,6 +95,18 @@ typedef enum tegra_das_port_t {
 
 #define MAX_DAP_PORTS	(tegra_das_port_dap5 + 1)
 
+#else
+typedef enum tegra_das_port_t {
+	tegra_das_port_none = -1,
+	tegra_das_port_i2s0 = 0,
+	tegra_das_port_i2s1,
+	tegra_das_port_i2s2,
+	tegra_das_port_i2s3,
+	tegra_das_port_i2s4,
+} tegra_das_port;
+
+#define MAX_DAP_PORTS	(tegra_das_port_i2s4 + 1)
+#endif
 /* defines possible hardware connected to DAP */
 enum tegra_audio_codec_type {
 	tegra_audio_codec_type_none = 0,
@@ -127,6 +140,7 @@ enum dac_dap_data_format {
 	dac_dap_data_format_dsp = 0x2,
 	dac_dap_data_format_rjm = 0x4,
 	dac_dap_data_format_ljm = 0x8,
+	dac_dap_data_format_tdm = 0x10,
 
 	dac_dap_data_format_all = 0x7FFFFFFF
 };
@@ -135,6 +149,8 @@ struct audio_dev_property {
 	unsigned int num_channels;
 	unsigned int bits_per_sample;
 	unsigned int rate;
+	unsigned int master;
+	bool lrck_high_left;
 	unsigned int dac_dap_data_comm_format;
 };
 
@@ -218,9 +234,22 @@ int tegra_das_get_connection(void);
 bool tegra_das_is_port_master(enum tegra_audio_codec_type codec_type);
 
 /*
+ * Function to query if certain device need to be
+ * configured as master for current das connection
+ */
+int tegra_das_is_device_master(enum tegra_audio_codec_type codec_type);
+
+
+/*
  * Function to get data format for certain codec for current das connection
  */
 int tegra_das_get_codec_data_fmt(enum tegra_audio_codec_type codec_type);
+
+/*
+ * Function to query device properties
+ */
+int tegra_das_get_device_property(enum tegra_audio_codec_type codec_type,
+	struct audio_dev_property *dev_prop);
 
 /*
  * Function to get dap Mclk handle
@@ -243,4 +272,28 @@ void tegra_das_get_all_regs(struct das_regs_cache* regs);
  */
 void tegra_das_set_all_regs(struct das_regs_cache* regs);
 
+/*
+ * Function to set parent for mclk
+ */
+int tegra_das_set_mclk_parent(int parent);
+
+/*
+ * Function to enable the mclk
+ */
+int tegra_das_enable_mclk(void);
+
+/*
+ * Function to disble the mclk
+ */
+int tegra_das_disable_mclk(void);
+
+/*
+ * Function to set the mclk rate
+ */
+int tegra_das_set_mclk_rate(int rate);
+
+/*
+ * Function to get the mclk rate
+ */
+int tegra_das_get_mclk_rate(void);
 #endif

@@ -15,7 +15,7 @@
  */
 
 /* All configurations related to audio */
-//#define ALC5623_IS_MASTER 
+/*#define ALC5623_IS_MASTER */
  
 #include <linux/console.h>
 #include <linux/kernel.h>
@@ -39,7 +39,7 @@
 #include <mach/irqs.h>
 #include <mach/iomap.h>
 #include <mach/gpio.h>
-#include <mach/i2s.h>
+#include <mach/tegra2_i2s.h>
 #include <mach/spdif.h>
 #include <mach/audio.h>  
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)
@@ -210,12 +210,12 @@ static struct tegra_audio_platform_data tegra_audio_pdata[] = {
 #else
 		.i2s_master		= true,		/* CODEC is slave for audio */
 		.dma_on			= true,  	/* use dma by default */
-#ifdef SHUTTLE_48KHZ_AUDIO
+#ifdef ADAM_48KHZ_AUDIO
                 .i2s_master_clk = 48000,
-                .i2s_clk_rate   = 12288000,
+                .dev_clk_rate   = 12288000,
 #else
                 .i2s_master_clk = 44100,
-                .i2s_clk_rate   = 11289600,
+                .dev_clk_rate   = 11289600,
 #endif
 		.dap_clk	  	= "clk_dev1",
 		.audio_sync_clk 	= "audio_2x",
@@ -231,7 +231,7 @@ static struct tegra_audio_platform_data tegra_audio_pdata[] = {
 		.dma_on			= true,  /* use dma by default */
 		.i2s_master_clk 	= 8000,
 		.dsp_master_clk 	= 8000,
-		.i2s_clk_rate		= 2000000,
+		.dev_clk_rate		= 2000000,
 		.dap_clk		= "clk_dev1",
 		.audio_sync_clk		= "audio_2x",
 		.mode			= I2S_BIT_FORMAT_DSP,
