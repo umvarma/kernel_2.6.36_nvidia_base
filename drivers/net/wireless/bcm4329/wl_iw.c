@@ -1345,7 +1345,7 @@ exit:
 }
 
 
-
+#if defined(PNO_SUPPORT)
 static int
 wl_iw_set_pno_set(
 	struct net_device *dev,
@@ -1479,6 +1479,7 @@ exit_proc:
 	net_os_wake_unlock(dev);
 	return res;
 }
+#endif
 #endif
 
 static int
@@ -5972,7 +5973,7 @@ exit_proc:
 	return res;
 }
 
-
+#if defined(CSCAN)
 static int
 wl_iw_set_cscan(
 	struct net_device *dev,
@@ -6169,6 +6170,7 @@ exit_proc:
 	return res;
 }
 
+#endif 
 #endif 
 
 #ifdef SOFTAP
