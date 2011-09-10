@@ -3,7 +3,7 @@
  *
  * S/PDIF audio driver for NVIDIA Tegra SoCs
  *
- * Copyright (c) 2008-2009, NVIDIA Corporation.
+ * Copyright (c) 2008-2011, NVIDIA Corporation.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -172,6 +172,9 @@ static int set_spdif_clock(struct audio_driver_state *state,
 	unsigned int clock_freq = 0;
 	struct clk *spdif_clk;
 
+	struct clk *pll_a_out0_clk =
+			clk_get_sys(NULL, "pll_a_out0");
+
 	switch (sample_rate) {
 	case 32000:
 		clock_freq = 4096000; /* 4.0960 MHz */
@@ -205,6 +208,9 @@ static int set_spdif_clock(struct audio_driver_state *state,
 		return -EIO;
 	}
 
+	/* set spdif parent as plla */
+	clk_set_parent(spdif_clk, pll_a_out0_clk);
+
 	clk_set_rate(spdif_clk, clock_freq);
 	if (clk_enable(spdif_clk)) {
 		dev_err(&state->pdev->dev,
@@ -213,7 +219,36 @@ static int set_spdif_clock(struct audio_driver_state *state,
 	}
 	pr_info("%s: spdif_clk rate %ld\n", __func__, clk_get_rate(spdif_clk));
 
+
+	/*FIXME: Proper position for this code will be Display driver */
+	/* can do based on hdmi plugin */
+#if !defined(CONFIG_ARCH_TEGRA_2x_SOC)
+	{
+		struct clk *hda2codec_clk =0;
+
+		hda2codec_clk = clk_get_sys("hda2codec_2x", NULL);
+		if (IS_ERR_OR_NULL(hda2codec_clk)) {
+			dev_err(&state->pdev->dev, "couldn't get hda2codec_2x clock\n");
+			goto clock_fail;
+		}
+
+		if (clk_enable(hda2codec_clk)) {
+			dev_err(&state->pdev->dev,
+				"failed to enable hda2codec_2x clock\n");
+			goto clock_fail;
+		}
+
+		return 0;
+
+clock_fail:
+		if (spdif_clk)
+			clk_disable(spdif_clk);
+
+		return -EIO;
+	}
+#else
 	return 0;
+#endif
 }
 
 static int init_stream_buffer(struct audio_stream *, int);
@@ -315,7 +350,8 @@ static int setup_dma(struct audio_driver_state *ads)
 		ads->out.dma_req[i].source_addr = ads->out.buf_phy[i];
 	}
 	ads->out.dma_chan =
-		 tegra_dma_allocate_channel(TEGRA_DMA_MODE_CONTINUOUS_SINGLE);
+		 tegra_dma_allocate_channel(TEGRA_DMA_MODE_CONTINUOUS_SINGLE,
+			"spdif_tx_req_%d", ads->dma_req_sel);
 	if (!ads->out.dma_chan) {
 		pr_err("%s: error alloc output DMA channel: %ld\n",
 			__func__, PTR_ERR(ads->out.dma_chan));
@@ -437,8 +473,8 @@ static void stop_dma_playback(struct audio_stream *aos)
 	struct audio_driver_state *ads = ads_from_out(aos);
 	pr_debug("%s\n", __func__);
 	spdif_fifo_enable(ads->spdif_base, AUDIO_TX_MODE, 0);
-	while ((spdif_get_status(ads->spdif_base) & SPDIF_STATUS_0_TX_BSY) &&
-			spin < 100) {
+	while ((spdif_get_status(ads->spdif_base, AUDIO_TX_MODE) &
+				 SPDIF_STATUS_0_TX_BSY) && spin < 100) {
 		udelay(10);
 		if (spin++ > 50)
 			pr_info("%s: spin %d\n", __func__, spin);
@@ -449,10 +485,11 @@ static void stop_dma_playback(struct audio_stream *aos)
 }
 
 
+#if defined(CONFIG_ARCH_TEGRA_2x_SOC)
 static irqreturn_t spdif_interrupt(int irq, void *data)
 {
 	struct audio_driver_state *ads = data;
-	u32 status = spdif_get_status(ads->spdif_base);
+	u32 status = spdif_get_status(ads->spdif_base, AUDIO_TX_MODE);
 
 	pr_debug("%s: %08x\n", __func__, status);
 
@@ -460,9 +497,10 @@ static irqreturn_t spdif_interrupt(int irq, void *data)
 		spdif_ack_status(ads->spdif_base);
 
 	pr_debug("%s: done %08x\n", __func__,
-			spdif_get_status(ads->spdif_base));
+			spdif_get_status(ads->spdif_base, AUDIO_TX_MODE));
 	return IRQ_HANDLED;
 }
+#endif
 
 static ssize_t tegra_spdif_write(struct file *file,
 		const char __user *buf, size_t size, loff_t *off)
@@ -845,7 +883,7 @@ static int spdif_configure(struct platform_device *pdev)
 	spdif_fifo_set_attention_level(state->spdif_base, AUDIO_TX_MODE,
 		state->out.spdif_fifo_atn_level);
 
-	spdif_set_sample_rate(state->spdif_base, 44100);
+	spdif_set_sample_rate(state->spdif_base, AUDIO_TX_MODE, 44100);
 
 	state->fifo_init = true;
 	return 0;
@@ -894,12 +932,14 @@ static int tegra_spdif_probe(struct platform_device *pdev)
 	}
 	state->dma_req_sel = res->start;
 
+#if defined(CONFIG_ARCH_TEGRA_2x_SOC)
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "no irq resource!\n");
 		return -ENODEV;
 	}
 	state->irq = res->start;
+#endif
 
 	rc = spdif_configure(pdev);
 	if (rc < 0)
@@ -930,6 +970,7 @@ static int tegra_spdif_probe(struct platform_device *pdev)
 	wake_lock_init(&state->out.wake_lock, WAKE_LOCK_SUSPEND,
 			state->out.wake_lock_name);
 
+#if defined(CONFIG_ARCH_TEGRA_2x_SOC)
 	if (request_irq(state->irq, spdif_interrupt,
 			IRQF_DISABLED, state->pdev->name, state) < 0) {
 		dev_err(&pdev->dev,
@@ -937,6 +978,7 @@ static int tegra_spdif_probe(struct platform_device *pdev)
 			__func__, state->irq);
 		return -EIO;
 	}
+#endif
 
 	rc = setup_misc_device(&state->misc_out,
 			&tegra_spdif_out_fops,

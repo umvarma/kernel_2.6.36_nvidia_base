@@ -6,6 +6,8 @@
  * Author:
  *      Iliyan Malchev <malchev@google.com>
  *
+ * Copyright (C) 2010-2011 NVIDIA Corporation
+ *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -52,7 +54,7 @@
 
 #include <mach/dma.h>
 #include <mach/iomap.h>
-#include <mach/tegra2_i2s.h>
+#include <mach/i2s.h>
 #include <mach/audio.h>
 #include <mach/irqs.h>
 
@@ -416,7 +418,7 @@ static int i2s_set_bit_format(unsigned long base, unsigned fmt)
 {
 	u32 val;
 
-	if (fmt > I2S_BIT_FORMAT_DSP) {
+	if (fmt > AUDIO_FRAME_FORMAT_DSP) {
 		pr_err("%s: invalid bit-format selector %d\n", __func__, fmt);
 		return -EINVAL;
 	}
@@ -427,7 +429,7 @@ static int i2s_set_bit_format(unsigned long base, unsigned fmt)
 	i2s_writel(base, val, I2S_I2S_CTRL_0);
 	/* For DSP format, select DSP PCM mode. */
 	/* PCM mode and Network Mode slot 0 are effectively identical. */
-	if (fmt == I2S_BIT_FORMAT_DSP)
+	if (fmt == AUDIO_FRAME_FORMAT_DSP)
 		i2s_set_dsp_mode(base, TEGRA_AUDIO_DSP_PCM);
 	else
 		i2s_set_dsp_mode(base, TEGRA_AUDIO_DSP_NONE);
@@ -572,8 +574,8 @@ static int i2s_configure(struct platform_device *pdev)
 
 	/* disable interrupts from I2S */
 	i2s_enable_fifos(state->i2s_base, 0);
-	i2s_fifo_clear(state->i2s_base, I2S_FIFO_TX);
-	i2s_fifo_clear(state->i2s_base, I2S_FIFO_RX);
+	i2s_fifo_clear(state->i2s_base, AUDIO_TX_MODE);
+	i2s_fifo_clear(state->i2s_base, AUDIO_RX_MODE);
 	i2s_set_left_right_control_polarity(state->i2s_base, 0); /* default */
 
 	i2s_clk = clk_get(&pdev->dev, NULL);
@@ -596,11 +598,11 @@ static int i2s_configure(struct platform_device *pdev)
 			clk_get_rate(i2s_clk)*I2S_CLK_TO_BITCLK_RATIO);
 	i2s_set_master(state->i2s_base, master);
 
-	i2s_set_fifo_mode(state->i2s_base, I2S_FIFO_TX, 1);
-	i2s_set_fifo_mode(state->i2s_base, I2S_FIFO_RX, 0);
+	i2s_set_fifo_mode(state->i2s_base, AUDIO_TX_MODE, 1);
+	i2s_set_fifo_mode(state->i2s_base, AUDIO_RX_MODE, 0);
 
 	if (state->bit_format == TEGRA_AUDIO_BIT_FORMAT_DSP)
-		i2s_set_bit_format(state->i2s_base, I2S_BIT_FORMAT_DSP);
+		i2s_set_bit_format(state->i2s_base, AUDIO_FRAME_FORMAT_DSP);
 	else
 		i2s_set_bit_format(state->i2s_base, state->pdata->mode);
 	i2s_set_bit_size(state->i2s_base, state->pdata->bit_size);
@@ -733,7 +735,8 @@ static int setup_dma(struct audio_driver_state *ads, int mask)
 			ads->out.dma_req[i].source_addr = ads->out.buf_phy[i];
 		}
 		ads->out.dma_chan = tegra_dma_allocate_channel(
-				TEGRA_DMA_MODE_CONTINUOUS_SINGLE);
+				TEGRA_DMA_MODE_CONTINUOUS_SINGLE,
+				"i2s_tx_req_%d", ads->dma_req_sel);
 		if (!ads->out.dma_chan) {
 			pr_err("%s: error alloc output DMA channel: %ld\n",
 				__func__, PTR_ERR(ads->out.dma_chan));
@@ -754,7 +757,8 @@ static int setup_dma(struct audio_driver_state *ads, int mask)
 			ads->in.dma_req[i].dest_addr = ads->in.buf_phy[i];
 		}
 		ads->in.dma_chan = tegra_dma_allocate_channel(
-				TEGRA_DMA_MODE_CONTINUOUS_SINGLE);
+				TEGRA_DMA_MODE_CONTINUOUS_SINGLE,
+				"i2s_rx_req_%d", ads->dma_req_sel);
 		if (!ads->in.dma_chan) {
 			pr_err("%s: error allocating input DMA channel: %ld\n",
 				__func__, PTR_ERR(ads->in.dma_chan));
@@ -873,7 +877,7 @@ static void setup_dma_tx_request(struct tegra_dma_req *req,
 	req->complete = dma_tx_complete_callback;
 	req->dev = aos;
 	req->to_memory = false;
-	req->dest_addr = i2s_get_fifo_phy_base(ads->i2s_phys, I2S_FIFO_TX);
+	req->dest_addr = i2s_get_fifo_phy_base(ads->i2s_phys, AUDIO_TX_MODE);
 	req->dest_wrap = 4;
 	if (ads->bit_format == TEGRA_AUDIO_BIT_FORMAT_DSP)
 		req->dest_bus_width = ads->pdata->dsp_bus_width;
@@ -894,7 +898,7 @@ static void setup_dma_rx_request(struct tegra_dma_req *req,
 	req->complete = dma_rx_complete_callback;
 	req->dev = ais;
 	req->to_memory = true;
-	req->source_addr = i2s_get_fifo_phy_base(ads->i2s_phys, I2S_FIFO_RX);
+	req->source_addr = i2s_get_fifo_phy_base(ads->i2s_phys, AUDIO_RX_MODE);
 	req->source_wrap = 4;
 	if (ads->bit_format == TEGRA_AUDIO_BIT_FORMAT_DSP)
 		req->source_bus_width = ads->pdata->dsp_bus_width;
@@ -917,12 +921,12 @@ static int start_playback(struct audio_stream *aos,
 
 	spin_lock_irqsave(&aos->dma_req_lock, flags);
 #if 0
-	i2s_fifo_clear(ads->i2s_base, I2S_FIFO_TX);
+	i2s_fifo_clear(ads->i2s_base, AUDIO_TX_MODE);
 #endif
 	i2s_fifo_set_attention_level(ads->i2s_base,
-			I2S_FIFO_TX, aos->i2s_fifo_atn_level);
+			AUDIO_TX_MODE, aos->i2s_fifo_atn_level);
 
-	i2s_fifo_enable(ads->i2s_base, I2S_FIFO_TX, 1);
+	i2s_fifo_enable(ads->i2s_base, AUDIO_TX_MODE, 1);
 
 	rc = tegra_dma_enqueue_req(aos->dma_chan, req);
 	spin_unlock_irqrestore(&aos->dma_req_lock, flags);
@@ -938,7 +942,7 @@ static void stop_dma_playback(struct audio_stream *aos)
 	int spin = 0;
 	struct audio_driver_state *ads = ads_from_out(aos);
 	pr_debug("%s\n", __func__);
-	i2s_fifo_enable(ads->i2s_base, I2S_FIFO_TX, 0);
+	i2s_fifo_enable(ads->i2s_base, AUDIO_TX_MODE, 0);
 	while ((i2s_get_status(ads->i2s_base) & I2S_I2S_FIFO_TX_BUSY) &&
 			spin < 100) {
 		udelay(10);
@@ -970,11 +974,11 @@ static int start_dma_recording(struct audio_stream *ais, int size)
 	ais->last_queued = ais->num_bufs - 1;
 
 #if 0
-	i2s_fifo_clear(ads->i2s_base, I2S_FIFO_RX);
+	i2s_fifo_clear(ads->i2s_base, AUDIO_RX_MODE);
 #endif
 	i2s_fifo_set_attention_level(ads->i2s_base,
-			I2S_FIFO_RX, ais->i2s_fifo_atn_level);
-	i2s_fifo_enable(ads->i2s_base, I2S_FIFO_RX, 1);
+			AUDIO_RX_MODE, ais->i2s_fifo_atn_level);
+	i2s_fifo_enable(ads->i2s_base, AUDIO_RX_MODE, 1);
 	return 0;
 }
 
@@ -984,8 +988,8 @@ static void stop_dma_recording(struct audio_stream *ais)
 	struct audio_driver_state *ads = ads_from_in(ais);
 	pr_debug("%s\n", __func__);
 	tegra_dma_cancel(ais->dma_chan);
-	i2s_fifo_enable(ads->i2s_base, I2S_FIFO_RX, 0);
-	i2s_fifo_clear(ads->i2s_base, I2S_FIFO_RX);
+	i2s_fifo_enable(ads->i2s_base, AUDIO_RX_MODE, 0);
+	i2s_fifo_clear(ads->i2s_base, AUDIO_RX_MODE);
 	while ((i2s_get_status(ads->i2s_base) & I2S_I2S_FIFO_RX_BUSY) &&
 			spin < 100) {
 		udelay(10);
@@ -1165,7 +1169,7 @@ static long tegra_audio_ioctl(struct file *file,
 			ads->bit_format = mode;
 			break;
 		case TEGRA_AUDIO_BIT_FORMAT_DSP:
-			i2s_set_bit_format(ads->i2s_base, I2S_BIT_FORMAT_DSP);
+			i2s_set_bit_format(ads->i2s_base, AUDIO_FRAME_FORMAT_DSP);
 			ads->bit_format = mode;
 			break;
 		default:
@@ -1782,7 +1786,7 @@ static int tegra_audio_probe(struct platform_device *pdev)
 		return -EIO;
 	}
 
-	clk_set_rate(i2s_clk, state->pdata->i2s_clk_rate);
+	clk_set_rate(i2s_clk, state->pdata->dev_clk_rate);
 	if (clk_enable(i2s_clk)) {
 		dev_err(&pdev->dev, "%s: failed to enable i2s clock\n",
 			__func__);
