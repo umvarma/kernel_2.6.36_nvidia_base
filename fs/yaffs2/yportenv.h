@@ -87,7 +87,7 @@
 #define Y_TIME_CONVERT(x) (x)
 #endif
 
-#define yaffs_sum_cmp(x, y) ((x) == (y))
+#define yaffs_SumCompare(x, y) ((x) == (y))
 #define yaffs_strcmp(a, b) strcmp(a, b)
 
 #define TENDSTR "\n"
@@ -145,7 +145,7 @@
 #define YAFFS_ROOT_MODE			0755
 #define YAFFS_LOSTNFOUND_MODE		0700
 
-#define yaffs_sum_cmp(x, y) ((x) == (y))
+#define yaffs_SumCompare(x, y) ((x) == (y))
 #define yaffs_strcmp(a, b) strcmp(a, b)
 
 #else
@@ -170,7 +170,7 @@
 #define O_RDWR		02
 #endif
 
-#ifndef O_CREAT		
+#ifndef O_CREAT
 #define O_CREAT 	0100
 #endif
 
@@ -218,7 +218,7 @@
 #define EACCES	13
 #endif
 
-#ifndef EXDEV	
+#ifndef EXDEV
 #define EXDEV	18
 #endif
 
@@ -281,7 +281,7 @@
 #define S_IFREG		0100000
 #endif
 
-#ifndef S_IREAD 
+#ifndef S_IREAD
 #define S_IREAD		0000400
 #endif
 

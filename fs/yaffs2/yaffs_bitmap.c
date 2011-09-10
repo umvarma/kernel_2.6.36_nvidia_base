@@ -17,22 +17,22 @@
  * Chunk bitmap manipulations
  */
 
-static Y_INLINE __u8 *yaffs_block_bits(yaffs_dev_t *dev, int blk)
+static Y_INLINE __u8 *yaffs_BlockBits(yaffs_Device *dev, int blk)
 {
-	if (blk < dev->internal_start_block || blk > dev->internal_end_block) {
+	if (blk < dev->internalStartBlock || blk > dev->internalEndBlock) {
 		T(YAFFS_TRACE_ERROR,
 			(TSTR("**>> yaffs: BlockBits block %d is not valid" TENDSTR),
 			blk));
 		YBUG();
 	}
-	return dev->chunk_bits +
-		(dev->chunk_bit_stride * (blk - dev->internal_start_block));
+	return dev->chunkBits +
+		(dev->chunkBitmapStride * (blk - dev->internalStartBlock));
 }
 
-void yaffs_verify_chunk_bit_id(yaffs_dev_t *dev, int blk, int chunk)
+void yaffs_VerifyChunkBitId(yaffs_Device *dev, int blk, int chunk)
 {
-	if (blk < dev->internal_start_block || blk > dev->internal_end_block ||
-			chunk < 0 || chunk >= dev->param.chunks_per_block) {
+	if (blk < dev->internalStartBlock || blk > dev->internalEndBlock ||
+			chunk < 0 || chunk >= dev->param.nChunksPerBlock) {
 		T(YAFFS_TRACE_ERROR,
 		(TSTR("**>> yaffs: Chunk Id (%d:%d) invalid"TENDSTR),
 			blk, chunk));
@@ -40,65 +40,65 @@ void yaffs_verify_chunk_bit_id(yaffs_dev_t *dev, int blk, int chunk)
 	}
 }
 
-void yaffs_clear_chunk_bits(yaffs_dev_t *dev, int blk)
+void yaffs_ClearChunkBits(yaffs_Device *dev, int blk)
 {
-	__u8 *blk_bits = yaffs_block_bits(dev, blk);
+	__u8 *blkBits = yaffs_BlockBits(dev, blk);
 
-	memset(blk_bits, 0, dev->chunk_bit_stride);
+	memset(blkBits, 0, dev->chunkBitmapStride);
 }
 
-void yaffs_clear_chunk_bit(yaffs_dev_t *dev, int blk, int chunk)
+void yaffs_ClearChunkBit(yaffs_Device *dev, int blk, int chunk)
 {
-	__u8 *blk_bits = yaffs_block_bits(dev, blk);
+	__u8 *blkBits = yaffs_BlockBits(dev, blk);
 
-	yaffs_verify_chunk_bit_id(dev, blk, chunk);
+	yaffs_VerifyChunkBitId(dev, blk, chunk);
 
-	blk_bits[chunk / 8] &= ~(1 << (chunk & 7));
+	blkBits[chunk / 8] &= ~(1 << (chunk & 7));
 }
 
-void yaffs_set_chunk_bit(yaffs_dev_t *dev, int blk, int chunk)
+void yaffs_SetChunkBit(yaffs_Device *dev, int blk, int chunk)
 {
-	__u8 *blk_bits = yaffs_block_bits(dev, blk);
+	__u8 *blkBits = yaffs_BlockBits(dev, blk);
 
-	yaffs_verify_chunk_bit_id(dev, blk, chunk);
+	yaffs_VerifyChunkBitId(dev, blk, chunk);
 
-	blk_bits[chunk / 8] |= (1 << (chunk & 7));
+	blkBits[chunk / 8] |= (1 << (chunk & 7));
 }
 
-int yaffs_check_chunk_bit(yaffs_dev_t *dev, int blk, int chunk)
+int yaffs_CheckChunkBit(yaffs_Device *dev, int blk, int chunk)
 {
-	__u8 *blk_bits = yaffs_block_bits(dev, blk);
-	yaffs_verify_chunk_bit_id(dev, blk, chunk);
+	__u8 *blkBits = yaffs_BlockBits(dev, blk);
+	yaffs_VerifyChunkBitId(dev, blk, chunk);
 
-	return (blk_bits[chunk / 8] & (1 << (chunk & 7))) ? 1 : 0;
+	return (blkBits[chunk / 8] & (1 << (chunk & 7))) ? 1 : 0;
 }
 
-int yaffs_still_some_chunks(yaffs_dev_t *dev, int blk)
+int yaffs_StillSomeChunkBits(yaffs_Device *dev, int blk)
 {
-	__u8 *blk_bits = yaffs_block_bits(dev, blk);
+	__u8 *blkBits = yaffs_BlockBits(dev, blk);
 	int i;
-	for (i = 0; i < dev->chunk_bit_stride; i++) {
-		if (*blk_bits)
+	for (i = 0; i < dev->chunkBitmapStride; i++) {
+		if (*blkBits)
 			return 1;
-		blk_bits++;
+		blkBits++;
 	}
 	return 0;
 }
 
-int yaffs_count_chunk_bits(yaffs_dev_t *dev, int blk)
+int yaffs_CountChunkBits(yaffs_Device *dev, int blk)
 {
-	__u8 *blk_bits = yaffs_block_bits(dev, blk);
+	__u8 *blkBits = yaffs_BlockBits(dev, blk);
 	int i;
 	int n = 0;
-	for (i = 0; i < dev->chunk_bit_stride; i++) {
-		__u8 x = *blk_bits;
+	for (i = 0; i < dev->chunkBitmapStride; i++) {
+		__u8 x = *blkBits;
 		while (x) {
 			if (x & 1)
 				n++;
 			x >>= 1;
 		}
 
-		blk_bits++;
+		blkBits++;
 	}
 	return n;
 }

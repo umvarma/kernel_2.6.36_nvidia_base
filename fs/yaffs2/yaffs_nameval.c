@@ -20,7 +20,7 @@
  *  strnlen+1 bytes name null terminated.
  *  nbytes    value.
  *  ----------
- *  total size  stored in record size 
+ *  total size  stored in record size
  *
  * This code has not been tested with unicode yet.
  */
@@ -29,7 +29,7 @@
 #include "yaffs_nameval.h"
 
 #include "yportenv.h"
- 
+
 static int nval_find(const char *xb, int xb_size, const YCHAR *name,
 		int *exist_size)
 {
@@ -74,7 +74,7 @@ int nval_del(char *xb, int xb_size, const YCHAR *name)
 {
 	int pos  = nval_find(xb, xb_size, name, NULL);
 	int size;
-	
+
 	if(pos >= 0 && pos < xb_size){
 		/* Find size, shift rest over this record, then zero out the rest of buffer */
 		memcpy(&size,xb+pos,sizeof(int));
@@ -128,9 +128,9 @@ int nval_get(const char *xb, int xb_size, const YCHAR *name, char *buf, int bsiz
 {
 	int pos = nval_find(xb,xb_size,name,NULL);
 	int size;
-	
+
 	if(pos >= 0 && pos< xb_size){
-		
+
 		memcpy(&size,xb +pos,sizeof(int));
 		pos+=sizeof(int); /* advance past record length */
 		size -= sizeof(int);
@@ -148,7 +148,7 @@ int nval_get(const char *xb, int xb_size, const YCHAR *name, char *buf, int bsiz
 			memcpy(buf,xb + pos,size);
 			return size;
 		}
-		
+
 	}
 	if(pos >= 0)
 		return -ERANGE;

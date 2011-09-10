@@ -20,16 +20,16 @@
 #include "yaffs_trace.h"
 
 /* Function to manipulate block info */
-static Y_INLINE yaffs_block_info_t *yaffs_get_block_info(yaffs_dev_t * dev, int blk)
+static Y_INLINE yaffs_BlockInfo *yaffs_GetBlockInfo(yaffs_Device * dev, int blk)
 {
-	if (blk < dev->internal_start_block || blk > dev->internal_end_block) {
+	if (blk < dev->internalStartBlock || blk > dev->internalEndBlock) {
 		T(YAFFS_TRACE_ERROR,
 		  (TSTR
-		   ("**>> yaffs: get_block_info block %d is not valid" TENDSTR),
+		   ("**>> yaffs: getBlockInfo block %d is not valid" TENDSTR),
 		   blk));
 		YBUG();
 	}
-	return &dev->block_info[blk - dev->internal_start_block];
+	return &dev->blockInfo[blk - dev->internalStartBlock];
 }
 
 #endif

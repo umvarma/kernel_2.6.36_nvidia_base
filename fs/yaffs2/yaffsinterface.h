@@ -13,12 +13,9 @@
  * Note: Only YAFFS headers are LGPL, YAFFS C code is covered by GPL.
  */
 
+#ifndef __YAFFSINTERFACE_H__
+#define __YAFFSINTERFACE_H__
 
-#ifndef __YAFFS_TAGS_VALIDITY_H__
-#define __YAFFS_TAGS_VALIDITY_H__
+int yaffs_Initialise(unsigned nBlocks);
 
-#include "yaffs_guts.h"
-
-void yaffs_InitialiseTags(yaffs_ExtendedTags *tags);
-int yaffs_ValidateTags(yaffs_ExtendedTags *tags);
 #endif
