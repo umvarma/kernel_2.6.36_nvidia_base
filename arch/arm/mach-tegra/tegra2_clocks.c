@@ -192,6 +192,11 @@ unsigned long clk_measure_input_freq(void)
 
 static int clk_div71_get_divider(unsigned long parent_rate, unsigned long rate)
 {
+	if(rate == 0){
+		WARN_ON(true);
+		return -EINVAL;
+	}
+	
 	s64 divider_u71 = parent_rate * 2;
 	divider_u71 += rate - 1;
 	do_div(divider_u71, rate);

@@ -3,7 +3,6 @@
 
 #include <asm/system.h>
 #include <linux/types.h>
-
 /*
  * The semantics of do_div() are:
  *

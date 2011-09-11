@@ -31,3 +31,8 @@ obj-$(CONFIG_SND_RAWMIDI)	+= snd-rawmidi.o
 
 obj-$(CONFIG_SND_OSSEMUL)	+= oss/
 obj-$(CONFIG_SND_SEQUENCER)	+= seq/
+
+ifeq ($(CONFIG_SND_DEBUG),y)
+EXTRA_CFLAGS += -DDEBUG
+endif
+

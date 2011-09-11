@@ -142,27 +142,27 @@ static __initdata struct tegra_clk_init_table adam_clk_init_table[] = {
 #endif
 		
 #ifdef ALC5623_IS_MASTER		
-	{ "i2s1",   	"clk_m",         12000000,  false},		/* i2s.0 */
-	{ "i2s2",		"clk_m",	     12000000,	false},		/* i2s.1 */
-	{ "audio", 		"i2s1",          12000000,  false},
-	{ "audio_2x",	"audio",		 24000000,	false},
-	{ "spdif_in",	"pll_p",		 36000000,	false},
-	{ "spdif_out",  "pll_a_out0",  	  6144000,  false},
+	{ "i2s1",   	"clk_m",         12000000,  		true},		/* i2s.0 */
+	{ "i2s2",		"clk_m",	     12000000,	true},		/* i2s.1 */
+	{ "audio", 		"i2s1",          12000000,  	true},
+	{ "audio_2x",	"audio",		 24000000,	true},
+	{ "spdif_in",	"pll_p",		 36000000,	true},
+	{ "spdif_out",  "pll_a_out0",  	  	 6144000,  	true},
 #else
 #       ifdef ADAM_48KHZ_AUDIO
-        { "i2s1",       "pll_a_out0",    12288000,  false},             /* i2s.0 */
-        { "i2s2",               "pll_a_out0",    12288000,      false},         /* i2s.1 */
-        { "audio",              "pll_a_out0",    12288000,  false},
-        { "audio_2x",   "audio",                 24576000,      false},
-        { "spdif_in",   "pll_p",                 36000000,      false},
-        { "spdif_out",  "pll_a_out0",     6144000,  false},
+        { "i2s1",       "pll_a_out0",    	12288000,  	true},             /* i2s.0 */
+        { "i2s2",               "pll_a_out0",    12288000,      true},         /* i2s.1 */
+        { "audio",              "pll_a_out0",    12288000,  	true},
+        { "audio_2x",   "audio",                 24576000,      true},
+        { "spdif_in",   "pll_p",                 36000000,      true},
+        { "spdif_out",  "pll_a_out0",     	6144000,  	true},
 #       else
-        { "i2s1",       "pll_a_out0",     2822400,  false},             /* i2s.0 */
-        { "i2s2",               "pll_a_out0",    11289600,      false},         /* i2s.1 */
-        { "audio",              "pll_a_out0",    11289600,  false},
-        { "audio_2x",   "audio",                 22579200,      false},
-        { "spdif_in",   "pll_p",                 36000000,      false},
-        { "spdif_out",  "pll_a_out0",     5644800,  false},
+        { "i2s1",       "pll_a_out0",     	2822400,  	true},             /* i2s.0 */
+        { "i2s2",               "pll_a_out0",    11289600,      true},         /* i2s.1 */
+        { "audio",              "pll_a_out0",    11289600,  	true},
+        { "audio_2x",   "audio",                 22579200,      true},
+        { "spdif_in",   "pll_p",                 36000000,      true},
+        { "spdif_out",  "pll_a_out0",     	5644800,  	true},
 #       endif
 #endif
 	

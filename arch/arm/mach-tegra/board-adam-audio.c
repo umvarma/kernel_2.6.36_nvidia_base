@@ -188,9 +188,9 @@ static struct tegra_audio_platform_data tegra_spdif_pdata = {
 	.dma_on = true,  /* use dma by default */
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)
 #ifdef ADAM_48KHZ_AUDIO
-        .spdif_clk_rate = 6144000,
+        .dev_clk_rate = 6144000,
 #else
-        .spdif_clk_rate = 5644800,
+        .dev_clk_rate = 5644800,
 #endif
 #endif
 };

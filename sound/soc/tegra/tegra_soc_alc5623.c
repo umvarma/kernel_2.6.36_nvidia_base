@@ -561,13 +561,13 @@ static struct snd_soc_jack_pin tegra_jack_pins[] = {
 	{
 		.pin = "Internal Speaker",
 		.mask = SND_JACK_HEADPHONE,
-		.invert = 1, /* Enable pin when status is not reported */
+		.invert = 0, /* Enable pin when status is reported */
 	},
 	/* Enable headphone when status is reported */
 	{
 		.pin = "Headphone Jack",
 		.mask = SND_JACK_HEADPHONE,
-		.invert = 0, /* Enable pin when status is reported */
+		.invert = 1, /* Enable pin when status is not reported */
 	},
 };
 

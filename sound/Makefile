@@ -17,3 +17,8 @@ ifeq ($(CONFIG_SND),y)
 endif
 
 soundcore-objs  := sound_core.o
+
+ifeq ($(CONFIG_SND_DEBUG),y)
+EXTRA_CFLAGS += -DDEBUG
+endif
+

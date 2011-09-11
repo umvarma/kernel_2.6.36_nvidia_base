@@ -1278,7 +1278,8 @@ static int snd_soc_dapm_set_pin(struct snd_soc_codec *codec,
 
 	list_for_each_entry(w, &codec->dapm_widgets, list) {
 		if (!strcmp(w->name, pin)) {
-			pr_debug("dapm: %s: pin %s\n", codec->name, pin);
+			pr_debug("dapm: %s: pin %s=%d\n", codec->name, 
+				pin, status);
 			w->connected = status;
 			/* Allow disabling of forced pins */
 			if (status == 0)

@@ -93,7 +93,7 @@ static const struct {
         {ALC5623_GPIO_PIN_POLARITY                      , 0x040E }, /* All GPIOs high active */
         {ALC5623_GPIO_PIN_STICKY                        , 0x0000 }, /* No sticky ops */
         {ALC5623_GPIO_PIN_WAKEUP                        , 0x0000 }, /* No wakeups */
-        {ALC5623_GPIO_PIN_SHARING                       , 0x0000 },
+        {ALC5623_GPIO_PIN_SHARING                       , 0x0001 }, /* IRQ */ 
         {ALC5623_JACK_DET_CTRL                          , 0x4610 }, /*jackdetect gpio, headout low, auxout high */
         {ALC5623_MISC_CTRL                              , 0x8000 }, /* Slow Vref */
         {ALC5623_PSEUDO_SPATIAL_CTRL  		        , 0x0003 }, /* Disable */
