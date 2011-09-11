@@ -68,7 +68,7 @@ static const struct {
         u16 reg;        /* register */
         u16 val;        /* value */
 } alc5623_reg_default[] = {
-        {ALC5623_SPK_OUT_VOL                            , 0xFFFF }, /* Muted */
+        {ALC5623_SPK_OUT_VOL                            , 0xE0E0 }, /* Muted */
         {ALC5623_HP_OUT_VOL                             , 0x4040 }, /* Unmute left and right channels, enable 0 cross detector, 0db volume */
         {ALC5623_MONO_AUX_OUT_VOL                       , 0x4040 }, /* Unmute L+2 */
         {ALC5623_AUXIN_VOL                             	, 0xFF1F }, /* Mute Aux In volume */
@@ -82,21 +82,21 @@ static const struct {
         {ALC5623_MIC_CTRL                               , 0x0F02 }, /* 1.8uA short current det, Bias volt =0.9Avdd, +40db gain boost */
         {ALC5623_DAI_CONTROL                            , 0x8000 }, /* Slave interfase */
         {ALC5623_STEREO_AD_DA_CLK_CTRL           	, 0x166d},
-        {ALC5623_PWR_MANAG_ADD1                         , 0x9D66 }, 
-        {ALC5623_PWR_MANAG_ADD2                         , 0xB7FF }, 
-        {ALC5623_PWR_MANAG_ADD3                         , 0xF6FF }, 
-        {ALC5623_ADD_CTRL_REG                           , 0x5300 }, 
+        {ALC5623_PWR_MANAG_ADD1                         , 0xCD66 }, 
+        {ALC5623_PWR_MANAG_ADD2                         , 0x37F3 }, 
+        {ALC5623_PWR_MANAG_ADD3                         , 0xE63A }, 
+        {ALC5623_ADD_CTRL_REG                           , 0xD300 }, 
         {ALC5623_GLOBAL_CLK_CTRL_REG                    , 0x0000 }, 
         {ALC5623_PLL_CTRL                               , 0x0000 },
         {ALC5623_GPIO_OUTPUT_PIN_CTRL                   , 0x0002 }, /* Drive High */
-        {ALC5623_GPIO_PIN_CONFIG                        , 0x040E }, /* All GPIOs as input */
+        {ALC5623_GPIO_PIN_CONFIG                        , 0x0400 },
         {ALC5623_GPIO_PIN_POLARITY                      , 0x040E }, /* All GPIOs high active */
         {ALC5623_GPIO_PIN_STICKY                        , 0x0000 }, /* No sticky ops */
         {ALC5623_GPIO_PIN_WAKEUP                        , 0x0000 }, /* No wakeups */
-        {ALC5623_GPIO_PIN_SHARING                       , 0x0001 }, /* IRQ */ 
-        {ALC5623_JACK_DET_CTRL                          , 0x4610 }, /*jackdetect gpio, headout low, auxout high */
+        {ALC5623_GPIO_PIN_SHARING                       , 0x0000 }, /* None */ 
+        {ALC5623_JACK_DET_CTRL                          , 0x0000 }, /*jackdetect off */
         {ALC5623_MISC_CTRL                              , 0x8000 }, /* Slow Vref */
-        {ALC5623_PSEUDO_SPATIAL_CTRL  		        , 0x0003 }, /* Disable */
+        {ALC5623_PSEUDO_SPATIAL_CTRL  		        , 0x0498 },
 };
 
 static void alc5623_fill_cache(struct snd_soc_codec *codec)
@@ -310,9 +310,9 @@ static const char *alc5623_hpl_out_input_sel[] = {
 static const char *alc5623_hpr_out_input_sel[] = {
 		"Vmid", "HP Right Mix"};
 static const char *alc5623_spkout_input_sel[] = {
-		"Vmid", "HPOut Mix", "Speaker Mix", "Mono Mix"};
+		"Vmid", "HP Mix", "Speaker Mix", "Mono Mix"};
 static const char *alc5623_aux_out_input_sel[] = {
-		"Vmid", "HPOut Mix", "Speaker Mix", "Mono Mix"};
+		"Vmid", "HP Mix", "Speaker Mix", "Mono Mix"};
 
 /* auxout output mux */
 static const struct soc_enum alc5623_aux_out_input_enum =
@@ -367,7 +367,7 @@ SND_SOC_DAPM_MIXER("HPR Mix", ALC5623_PWR_MANAG_ADD2, 4, 0,
 SND_SOC_DAPM_MIXER("HPL Mix", ALC5623_PWR_MANAG_ADD2, 5, 0,
 	&alc5623_hpl_mixer_controls[0],
 	ARRAY_SIZE(alc5623_hpl_mixer_controls)),
-SND_SOC_DAPM_MIXER("HPOut Mix", SND_SOC_NOPM, 0, 0, NULL, 0),
+//SND_SOC_DAPM_MIXER("HPOut Mix", SND_SOC_NOPM, 0, 0, NULL, 0),
 SND_SOC_DAPM_MIXER("Mono Mix", ALC5623_PWR_MANAG_ADD2, 2, 0,
 	&alc5623_mono_mixer_controls[0],
 	ARRAY_SIZE(alc5623_mono_mixer_controls)),
@@ -446,8 +446,8 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"Line Mix", NULL,				"Left LineIn"},
 	{"AuxI Mix", NULL,				"Left AuxI"},
 	{"AuxI Mix", NULL,				"Right AuxI"},
-	{"AUXOUTL", NULL,				"Left AuxOut"},
-	{"AUXOUTR", NULL,				"Right AuxOut"},
+	{"AuxO Mix", NULL,				"Left AuxOut"},
+	{"AuxO Mix", NULL,				"Right AuxOut"},
 
 	/* HP mixer */
 	{"HPL Mix", "ADC2HP_L Playback Switch",		"Left Capture Mix"},
@@ -504,13 +504,13 @@ static const struct snd_soc_dapm_route audio_map[] = {
 
 	/* speaker out mux */
 	{"SpeakerOut Mux", "Vmid",			"Vmid"},
-	{"SpeakerOut Mux", "HPOut Mix",			"HPOut Mix"},
+	{"SpeakerOut Mux", "HP Mix",			"HP Mix"},
 	{"SpeakerOut Mux", "Speaker Mix",		"Speaker Mix"},
 	{"SpeakerOut Mux", "Mono Mix",			"Mono Mix"},
 
 	/* Mono/Aux Out mux */
 	{"AuxOut Mux", "Vmid",				"Vmid"},
-	{"AuxOut Mux", "HPOut Mix",			"HPOut Mix"},
+	{"AuxOut Mux", "HP Mix",			"HP Mix"},
 	{"AuxOut Mux", "Speaker Mix",			"Speaker Mix"},
 	{"AuxOut Mux", "Mono Mix",			"Mono Mix"},
 
@@ -519,7 +519,9 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"Left Headphone", NULL,			"Left Headphone Mux"},
 	{"HPR", NULL,					"Right Headphone"},
 	{"Right Headphone", NULL,			"Right Headphone Mux"},
+	{"AUXOUTL", NULL,				"Left AuxOut"},
 	{"Left AuxOut", NULL,				"AuxOut Mux"},
+	{"AUXOUTR", NULL,				"Right AuxOut"},
 	{"Right AuxOut", NULL,				"AuxOut Mux"},
 
 	/* input pga */
