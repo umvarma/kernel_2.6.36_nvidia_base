@@ -34,35 +34,36 @@
 #include <sound/soc.h>
 #include <sound/initval.h>
 #include <sound/alc5623.h>
-
-#include "alc5623.h"
-
-#define REGISTER_COUNT ALC5623_VENDOR_ID2+2
+#include <sound/alc5623-registers.h>
+#include <linux/gpio.h>
+#include <linux/seq_file.h>
 
 static int caps_charge = 2000;
 module_param(caps_charge, int, 0);
 MODULE_PARM_DESC(caps_charge, "ALC5623 cap charge time (msecs)");
 
 /* codec private data */
-struct alc5623_priv {
+struct alc5623 {
 
-#if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)
-	/* Older versions of ALSA SoC require from us to hold the register
-	   cache ourselves and a codec reference */
-	struct snd_soc_codec codec;
-	u16 reg_cache[REGISTER_COUNT];
-#endif
-	struct clk* 	mclk;			/* the master clock */
-	unsigned int	linevdd_mv;		/* Line Vdd in millivolts */
-	enum snd_soc_control_type control_type;
-	void *control_data;
-	struct mutex mutex;
-	u8 id;
-	unsigned int sysclk;
-	int using_pll;		/* If using PLL */
-	unsigned int add_ctrl;
-	unsigned int jack_det_ctrl;
+        struct mutex io_lock;
+        struct mutex irq_lock;
+
+        struct device *dev;
+
+        struct snd_soc_codec codec;
+        u16 reg_cache[REGISTER_COUNT];
+        struct clk*     mclk;                   /* the master clock */
+        unsigned int    linevdd_mv;             /* Line Vdd in millivolts */
+        enum snd_soc_control_type control_type;
+        void *control_data;
+        u8 id;
+        unsigned int sysclk;
+        int using_pll;          /* If using PLL */
+        unsigned int add_ctrl;
+        unsigned int jack_det_ctrl;
+	struct gpio_chip gpio_chip;
 };
+
 
 static const struct {
         u16 reg;        /* register */
@@ -117,7 +118,6 @@ static void alc5623_fill_cache(struct snd_soc_codec *codec)
 static void alc5623_sync_cache(struct snd_soc_codec *codec)
 {
 
-	/*struct alc5623_priv *alc5623 = snd_soc_codec_get_drvdata(codec);*/
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)
 	int i, step = 2, size = REGISTER_COUNT;
 #else
@@ -310,9 +310,9 @@ static const char *alc5623_hpl_out_input_sel[] = {
 static const char *alc5623_hpr_out_input_sel[] = {
 		"Vmid", "HP Right Mix"};
 static const char *alc5623_spkout_input_sel[] = {
-		"Vmid", "HP Mix", "Speaker Mix", "Mono Mix"};
+		"Vmid", "HPOut Mix", "Speaker Mix", "Mono Mix"};
 static const char *alc5623_aux_out_input_sel[] = {
-		"Vmid", "HP Mix", "Speaker Mix", "Mono Mix"};
+		"Vmid", "HPOut Mix", "Speaker Mix", "Mono Mix"};
 
 /* auxout output mux */
 static const struct soc_enum alc5623_aux_out_input_enum =
@@ -367,7 +367,7 @@ SND_SOC_DAPM_MIXER("HPR Mix", ALC5623_PWR_MANAG_ADD2, 4, 0,
 SND_SOC_DAPM_MIXER("HPL Mix", ALC5623_PWR_MANAG_ADD2, 5, 0,
 	&alc5623_hpl_mixer_controls[0],
 	ARRAY_SIZE(alc5623_hpl_mixer_controls)),
-//SND_SOC_DAPM_MIXER("HPOut Mix", SND_SOC_NOPM, 0, 0, NULL, 0),
+SND_SOC_DAPM_MIXER("HPOut Mix", SND_SOC_NOPM, 0, 0, NULL, 0),
 SND_SOC_DAPM_MIXER("Mono Mix", ALC5623_PWR_MANAG_ADD2, 2, 0,
 	&alc5623_mono_mixer_controls[0],
 	ARRAY_SIZE(alc5623_mono_mixer_controls)),
@@ -446,8 +446,8 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"Line Mix", NULL,				"Left LineIn"},
 	{"AuxI Mix", NULL,				"Left AuxI"},
 	{"AuxI Mix", NULL,				"Right AuxI"},
-	{"AuxO Mix", NULL,				"Left AuxOut"},
-	{"AuxO Mix", NULL,				"Right AuxOut"},
+	{"AUXOUTL", NULL,				"Left AuxOut"},
+	{"AUXOUTR", NULL,				"Right AuxOut"},
 
 	/* HP mixer */
 	{"HPL Mix", "ADC2HP_L Playback Switch",		"Left Capture Mix"},
@@ -504,13 +504,13 @@ static const struct snd_soc_dapm_route audio_map[] = {
 
 	/* speaker out mux */
 	{"SpeakerOut Mux", "Vmid",			"Vmid"},
-	{"SpeakerOut Mux", "HP Mix",			"HP Mix"},
+	{"SpeakerOut Mux", "HPOut Mix",			"HP Mix"},
 	{"SpeakerOut Mux", "Speaker Mix",		"Speaker Mix"},
 	{"SpeakerOut Mux", "Mono Mix",			"Mono Mix"},
 
 	/* Mono/Aux Out mux */
 	{"AuxOut Mux", "Vmid",				"Vmid"},
-	{"AuxOut Mux", "HP Mix",			"HP Mix"},
+	{"AuxOut Mux", "HPOut Mix",			"HP Mix"},
 	{"AuxOut Mux", "Speaker Mix",			"Speaker Mix"},
 	{"AuxOut Mux", "Mono Mix",			"Mono Mix"},
 
@@ -519,9 +519,7 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"Left Headphone", NULL,			"Left Headphone Mux"},
 	{"HPR", NULL,					"Right Headphone"},
 	{"Right Headphone", NULL,			"Right Headphone Mux"},
-	{"AUXOUTL", NULL,				"Left AuxOut"},
 	{"Left AuxOut", NULL,				"AuxOut Mux"},
-	{"AUXOUTR", NULL,				"Right AuxOut"},
 	{"Right AuxOut", NULL,				"AuxOut Mux"},
 
 	/* input pga */
@@ -661,7 +659,7 @@ static int alc5623_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
 {
 	int i;
 	struct snd_soc_codec *codec = codec_dai->codec;
-	struct alc5623_priv *alc5623 = snd_soc_codec_get_drvdata(codec);
+	struct alc5623 *alc5623 = snd_soc_codec_get_drvdata(codec);
 	unsigned int rin, rout, cd, m, finkhz, msel, ksel, psel, fvcodifsel;
 	unsigned int fvcosel;
 	u16 reg;
@@ -916,7 +914,7 @@ static int alc5623_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 		int clk_id, unsigned int freq, int dir)
 {
 	struct snd_soc_codec *codec = codec_dai->codec;
-	struct alc5623_priv *alc5623 = snd_soc_codec_get_drvdata(codec);
+	struct alc5623 *alc5623 = snd_soc_codec_get_drvdata(codec);
 
 	switch (freq) {
 	case  8192000:
@@ -1001,7 +999,7 @@ static int alc5623_pcm_hw_params(struct snd_pcm_substream *substream,
 #else	
 	struct snd_soc_codec *codec = rtd->codec;
 #endif
-	struct alc5623_priv *alc5623 = snd_soc_codec_get_drvdata(codec);
+	struct alc5623 *alc5623 = snd_soc_codec_get_drvdata(codec);
 	int coeff, rate;
 	u16 iface;
 
@@ -1071,7 +1069,7 @@ static int alc5623_mute(struct snd_soc_dai *dai, int mute)
 
 static void enable_power_depop(struct snd_soc_codec *codec)
 {
-	struct alc5623_priv *alc5623 = snd_soc_codec_get_drvdata(codec);
+	struct alc5623 *alc5623 = snd_soc_codec_get_drvdata(codec);
 
 	snd_soc_update_bits(codec, ALC5623_PWR_MANAG_ADD1,
 				ALC5623_PWR_ADD1_SOFTGEN_EN,
@@ -1105,7 +1103,7 @@ static void enable_power_depop(struct snd_soc_codec *codec)
 static int alc5623_set_bias_level(struct snd_soc_codec *codec,
 				      enum snd_soc_bias_level level)
 {
-	struct alc5623_priv *alc5623 = snd_soc_codec_get_drvdata(codec);
+	struct alc5623 *alc5623 = snd_soc_codec_get_drvdata(codec);
 	
 	dev_dbg(codec->dev, "%s(): level: %d\n", __FUNCTION__,level);
 
@@ -1121,25 +1119,8 @@ static int alc5623_set_bias_level(struct snd_soc_codec *codec,
 	switch (level) {
 	case SND_SOC_BIAS_ON:
 		enable_power_depop(codec);
-		
-		/* If using the PLL enable it and use it as clock source */
-		if (alc5623->using_pll) {
-	        	/* enable PLL power */
-		        snd_soc_update_bits(codec,ALC5623_PWR_MANAG_ADD2, 0x0100,0x0100);
-
-		        /* Codec sys-clock from PLL */
-		        snd_soc_update_bits(codec,ALC5623_GLOBAL_CLK_CTRL_REG,0x8000,0x8000);
-		}
 		break;
 	case SND_SOC_BIAS_PREPARE:
-
-		//LOW ON----- power on all power not controlled by DAPM - Codec sys-clock from MCLK */
-		snd_soc_update_bits(codec,ALC5623_GLOBAL_CLK_CTRL_REG,0x8000,0x0000);
-		enable_power_depop(codec);
-		//snd_soc_update_bits(codec,ALC5623_PWR_MANAG_ADD1,0xC144,0xc144);
-		//snd_soc_update_bits(codec,ALC5623_PWR_MANAG_ADD2,,);
-		//snd_soc_update_bits(codec,ALC5623_PWR_MANAG_ADD3,,);
-
 		break;
 	case SND_SOC_BIAS_STANDBY:
 
@@ -1163,7 +1144,6 @@ static int alc5623_set_bias_level(struct snd_soc_codec *codec,
 		}
 
 		/* everything off except vref/vmid, */
-		snd_soc_update_bits(codec,ALC5623_GLOBAL_CLK_CTRL_REG,0x8000,0x0000);
 		snd_soc_write(codec, ALC5623_PWR_MANAG_ADD2,
 				ALC5623_PWR_ADD2_VREF);
 		snd_soc_write(codec, ALC5623_PWR_MANAG_ADD3,
@@ -1189,8 +1169,10 @@ static int alc5623_set_bias_level(struct snd_soc_codec *codec,
 		break;
 	case SND_SOC_BIAS_OFF:
 
-		/* everything off, dac mute, inactive, Codec sys-clock from MCLK */
-		snd_soc_update_bits(codec,ALC5623_GLOBAL_CLK_CTRL_REG,0x8000,0x0000);
+		/*cache the current register values */
+		alc5623_fill_cache(codec);
+
+		/* everything off, dac mute, inactive */
 		snd_soc_write(codec, ALC5623_PWR_MANAG_ADD2, 0);
 		snd_soc_write(codec, ALC5623_PWR_MANAG_ADD3, 0);
 		snd_soc_write(codec, ALC5623_PWR_MANAG_ADD1, 0);
@@ -1329,7 +1311,7 @@ static int alc5623_resume(struct platform_device *pdev)
 static int alc5623_probe(struct snd_soc_codec *codec)
 {
 
-	struct alc5623_priv *alc5623 = snd_soc_codec_get_drvdata(codec);
+	struct alc5623 *alc5623 = snd_soc_codec_get_drvdata(codec);
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36)	
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 #endif
@@ -1457,7 +1439,7 @@ static struct snd_soc_codec_driver soc_codec_device_alc5623 = {
 	.suspend = alc5623_suspend,
 	.resume = alc5623_resume,
 	.set_bias_level = alc5623_set_bias_level,
-	.reg_cache_size = ALC5623_VENDOR_ID2+2,
+	.reg_cache_size = REGISTER_COUNT,
 	.reg_word_size = sizeof(u16),
 	.reg_cache_step = 2,
 };
@@ -1466,6 +1448,99 @@ static struct snd_soc_codec_driver soc_codec_device_alc5623 = {
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)	
 static struct snd_soc_codec *alc5623_codec = NULL;
 #endif
+
+static inline struct alc5623 *to_alc5623(struct gpio_chip *chip)
+{
+        return container_of(chip, struct alc5623, gpio_chip);
+}
+
+static int alc5623_gpio_direction_in(struct gpio_chip *chip, unsigned offset)
+{
+        struct alc5623 *alc5623 = to_alc5623(chip);
+
+        return snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_PIN_CONFIG,
+                               ALC5623_GPIO_PIN_GPIO_MASK, ALC5623_GPIO_PIN_GPIO_MASK);
+}
+
+static int alc5623_gpio_get(struct gpio_chip *chip, unsigned offset)
+{
+        printk(KERN_INFO "%s++", __func__);
+        struct alc5623 *alc5623 = to_alc5623(chip);
+        int ret;
+
+        ret = snd_soc_read(&alc5623->codec, ALC5623_GPIO_PIN_STATUS);
+        if (ret < 0)
+                return ret;
+
+        if (ret & ALC5623_GPIO_PIN_GPIO_MASK)
+                return 1;
+        else
+                return 0;
+}
+
+static int alc5623_gpio_direction_out(struct gpio_chip *chip,
+                                     unsigned offset, int value)
+{
+        struct alc5623 *alc5623 = to_alc5623(chip);
+
+        return snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_PIN_CONFIG,
+                               ALC5623_GPIO_PIN_GPIO_MASK, 0);
+}
+
+static void alc5623_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
+{
+        printk(KERN_INFO "%s++", __func__);
+        struct alc5623 *alc5623 = to_alc5623(chip);
+
+        if (value)
+                value = ALC5623_GPIO_PIN_GPIO_MASK;
+
+        snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_OUTPUT_PIN_CTRL, ALC5623_GPIO_PIN_GPIO_MASK, value);
+}
+
+#ifdef CONFIG_DEBUG_FS
+static void alc5623_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
+{
+        struct alc5623 *alc5623 = to_alc5623(chip);
+
+        int gpio = chip->base;
+        int reg;
+        const char *label;
+
+        /* We report the GPIO even if it's not requested since
+         * we're also reporting things like alternate
+         * functions which apply even when the GPIO is not in
+         * use as a GPIO.
+         */
+        label = gpiochip_is_requested(chip, 0);
+        if (!label)
+                label = "Unrequested";
+                seq_printf(s, " gpio-%-3d (%-20.20s) ", gpio, label);
+                reg = snd_soc_read(&alc5623->codec, ALC5623_GPIO_PIN_STATUS);
+        if (reg < 0) {
+                dev_err(alc5623->dev,
+                        "GPIO control %d read failed: %d\n",
+                        gpio, reg);
+                seq_printf(s, "\n");
+        } else
+                seq_printf(s, "(%x)\n", reg & ALC5623_GPIO_PIN_GPIO_MASK);
+
+}
+#else
+#define alc5623_gpio_dbg_show NULL
+#endif
+
+static struct gpio_chip template_chip = {
+        .label                  = "alc5623",
+        .owner                  = THIS_MODULE,
+        .direction_input        = alc5623_gpio_direction_in,
+        .get                    = alc5623_gpio_get,
+        .direction_output       = alc5623_gpio_direction_out,
+        .set                    = alc5623_gpio_set,
+        .dbg_show               = alc5623_gpio_dbg_show,
+        .can_sleep              = 1,
+};
+
 
 /*
  * ALC5623 2 wire address is determined by A1 pin
@@ -1477,7 +1552,7 @@ static int alc5623_i2c_probe(struct i2c_client *client,
 				const struct i2c_device_id *id)
 {
 	struct alc5623_platform_data *pdata;
-	struct alc5623_priv *alc5623;
+	struct alc5623 *alc5623;
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)		
 	struct snd_soc_codec *codec;
 #endif
@@ -1528,11 +1603,13 @@ static int alc5623_i2c_probe(struct i2c_client *client,
 
 	dev_dbg(&client->dev, "Found codec id : alc56%02x\n", vid2);
 
-	alc5623 = kzalloc(sizeof(struct alc5623_priv), GFP_KERNEL);
+	alc5623 = kzalloc(sizeof(struct alc5623), GFP_KERNEL);
 	if (alc5623 == NULL)
 		return -ENOMEM;
 
 	alc5623->mclk = mclk;
+
+	alc5623->dev = &client->dev;
 
 	/* Store the supply voltages used for amplifiers */
 	alc5623->linevdd_mv = pdata->linevdd_mv;	/* Line Vdd in millivolts */
@@ -1559,7 +1636,8 @@ static int alc5623_i2c_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, alc5623);
 	alc5623->control_data = client;
 	alc5623->control_type = SND_SOC_I2C;
-	mutex_init(&alc5623->mutex);
+	mutex_init(&alc5623->io_lock);
+	mutex_init(&alc5623->irq_lock);
 
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)	
 	/* linux 2.6.36 version setup is quite by hand */
@@ -1578,7 +1656,7 @@ static int alc5623_i2c_probe(struct i2c_client *client,
 	codec->set_bias_level = alc5623_set_bias_level;	
 	codec->dai = &alc5623_dai;
 	codec->num_dai = 1;
-	codec->reg_cache_size = ALC5623_VENDOR_ID2+2;
+	codec->reg_cache_size = REGISTER_COUNT;
 	codec->reg_cache_step = 2;
 	codec->reg_cache = &alc5623->reg_cache[0];
 	codec->volatile_register = alc5623_volatile_register;	
@@ -1619,16 +1697,30 @@ static int alc5623_i2c_probe(struct i2c_client *client,
 	if (ret != 0) {
 		dev_err(&client->dev, "Failed to register codec: %d\n", ret);
 		kfree(alc5623);
+		return ret;
 	}
 
 #endif
+
+        if (pdata && pdata->gpio_base)
+		alc5623->gpio_chip = template_chip;
+	        alc5623->gpio_chip.ngpio = 1;
+	        alc5623->gpio_chip.dev = &client->dev;
+        	alc5623->gpio_chip.base = pdata->gpio_base;
+
+	        ret = gpiochip_add(&alc5623->gpio_chip);
+        	if (ret < 0) {
+                	dev_err(&client->dev, "Could not register gpiochip, %d\n",
+	                        ret);
+        	        kfree(alc5623);
+	        }
 
 	return ret;
 }
 
 static int alc5623_i2c_remove(struct i2c_client *client)
 {
-	struct alc5623_priv *alc5623 = i2c_get_clientdata(client);
+	struct alc5623 *alc5623 = i2c_get_clientdata(client);
 
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)	
 	/* linux 2.6.36 version device removal is quite by hand */
@@ -1681,7 +1773,7 @@ static int alc5623_plat_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 	
-	struct alc5623_priv *alc5623;
+	struct alc5623 *alc5623;
 	alc5623 = snd_soc_codec_get_drvdata(alc5623_codec);
 
 	/* Associate the codec to the card */
@@ -1754,6 +1846,25 @@ struct snd_soc_codec_device soc_codec_dev_alc5623 = {
 EXPORT_SYMBOL_GPL(soc_codec_dev_alc5623);
 #endif
 
+int alc5623_set_bits(struct alc5623 *alc5623, unsigned short reg,
+                    unsigned short mask, unsigned short val)
+{
+        u16 r;
+
+
+        r = snd_soc_read(&alc5623->codec, reg);
+        if (r < 0)
+        	return r;
+
+        r &= ~mask;
+        r |= val;
+
+        return snd_soc_write(&alc5623->codec, reg, r);;
+
+}
+
+
+
 static int __init alc5623_modinit(void)
 {
 	int ret;
@@ -1766,7 +1877,7 @@ static int __init alc5623_modinit(void)
 
 	return ret;
 }
-module_init(alc5623_modinit);
+subsys_initcall(alc5623_modinit);
 
 static void __exit alc5623_modexit(void)
 {

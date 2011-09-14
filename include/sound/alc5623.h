@@ -1,5 +1,6 @@
 #ifndef _INCLUDE_SOUND_ALC5623_H
 #define _INCLUDE_SOUND_ALC5623_H
+
 struct alc5623_platform_data {
 	char*		mclk;
 	/* configure :                              */
@@ -12,10 +13,7 @@ struct alc5623_platform_data {
 	/* jack detect (gpio/nc/jack detect [12]    */
 	unsigned int jack_det_ctrl;
 	unsigned int    linevdd_mv;              /* Line Vdd in millivolts */
+	unsigned int    gpio_base;
 };
+
 #endif
-
-//char*                   mclk;                   /* The MCLK, that is required to make the codec work */
-//unsigned int    spkvdd_mv;              /* Speaker Vdd in millivolts */
-//unsigned int    hpvdd_mv;               /* Headphone Vdd in millivolts */
-

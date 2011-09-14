@@ -19,7 +19,7 @@
 /* #define DEBUG */
  
 #include "tegra_soc.h"
-#include "../codecs/alc5623.h"
+#include <sound/alc5623-registers.h>
 #include <sound/soc-dapm.h>
 #include <linux/regulator/consumer.h>
 
@@ -593,8 +593,8 @@ static const struct snd_soc_dapm_widget tegra_dapm_widgets[] = {
 static const struct snd_soc_dapm_route audio_map[] = {
 	{"Headphone Jack", NULL, "HPR"},
         {"Headphone Jack", NULL, "HPL"},
-        {"Internal Speaker", NULL, "AUXOUTL"},
-        {"Internal Speaker", NULL, "AUXOUTR"},
+        {"Internal Speaker", "HPOut Mix", "AUXOUTL"},
+        {"Internal Speaker", "HPOut Mix", "AUXOUTR"},
         {"Mic Bias1", NULL, "Internal Mic"},
         {"MIC1", NULL, "Mic Bias1"},
 };
