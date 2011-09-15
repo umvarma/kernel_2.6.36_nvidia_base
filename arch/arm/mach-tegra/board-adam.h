@@ -68,10 +68,13 @@
 
 // TPS6586x GPIOs as registered 
 #define PMU_GPIO_BASE		(TEGRA_NR_GPIOS) 
-#define PMU_GPIO0 			(PMU_GPIO_BASE)
-#define PMU_GPIO1 			(PMU_GPIO_BASE + 1) 
-#define PMU_GPIO2 			(PMU_GPIO_BASE + 2)
-#define PMU_GPIO3 			(PMU_GPIO_BASE + 3)
+#define PMU_GPIO0 		(PMU_GPIO_BASE)
+#define PMU_GPIO1 		(PMU_GPIO_BASE + 1) 
+#define PMU_GPIO2 		(PMU_GPIO_BASE + 2)
+#define PMU_GPIO3 		(PMU_GPIO_BASE + 3)
+
+#define ALC5623_GPIO_BASE	(TEGRA_NR_GPIOS + 16)
+#define ALC5623_GP0		(ALC5623_GPIO_BASE)
 
 #define PMU_IRQ_BASE		(TEGRA_NR_IRQS)
 #define PMU_IRQ_RTC_ALM1 	(PMU_IRQ_BASE + TPS6586X_INT_RTC_ALM1)
@@ -127,6 +130,7 @@ extern void adam_clks_init(void);
 
 extern int adam_usb_register_devices(void);
 extern int adam_audio_register_devices(void);
+extern int adam_jack_register_devices(void);
 extern int adam_gpu_register_devices(void);
 extern int adam_uart_register_devices(void);
 extern int adam_spi_register_devices(void);
