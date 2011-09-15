@@ -61,7 +61,9 @@ struct alc5623 {
         int using_pll;          /* If using PLL */
         unsigned int add_ctrl;
         unsigned int jack_det_ctrl;
+#ifdef CONFIG_GPIOLIB
 	struct gpio_chip gpio_chip;
+#endif
 };
 
 
@@ -99,6 +101,141 @@ static const struct {
         {ALC5623_MISC_CTRL                              , 0x8000 }, /* Slow Vref */
         {ALC5623_PSEUDO_SPATIAL_CTRL  		        , 0x0498 },
 };
+
+#ifdef CONFIG_GPIOLIB
+static inline struct alc5623 *to_alc5623(struct gpio_chip *chip)
+{
+        return container_of(chip, struct alc5623, gpio_chip);
+}
+
+static int alc5623_gpio_direction_in(struct gpio_chip *chip, unsigned offset)
+{
+        struct alc5623 *alc5623 = to_alc5623(chip);
+
+        return snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_PIN_CONFIG,
+                               ALC5623_GPIO_PIN_GPIO_MASK, ALC5623_GPIO_PIN_GPIO_MASK);
+}
+
+static int alc5623_gpio_get(struct gpio_chip *chip, unsigned offset)
+{
+        printk(KERN_INFO "%s++", __func__);
+        struct alc5623 *alc5623 = to_alc5623(chip);
+        int ret;
+
+        ret = snd_soc_read(&alc5623->codec, ALC5623_GPIO_PIN_STATUS);
+        if (ret < 0)
+                return ret;
+
+        if (ret & ALC5623_GPIO_PIN_GPIO_MASK)
+                return 1;
+        else
+                return 0;
+}
+
+static int alc5623_gpio_direction_out(struct gpio_chip *chip,
+                                     unsigned offset, int value)
+{
+        struct alc5623 *alc5623 = to_alc5623(chip);
+
+        return snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_PIN_CONFIG,
+                               ALC5623_GPIO_PIN_GPIO_MASK, 0);
+}
+
+static void alc5623_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
+{
+        printk(KERN_INFO "%s++", __func__);
+        struct alc5623 *alc5623 = to_alc5623(chip);
+
+        if (value)
+                value = ALC5623_GPIO_PIN_GPIO_MASK;
+
+        snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_OUTPUT_PIN_CTRL, ALC5623_GPIO_PIN_GPIO_MASK, value);
+}
+
+#ifdef CONFIG_DEBUG_FS
+static void alc5623_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
+{
+        struct alc5623 *alc5623 = to_alc5623(chip);
+
+        int gpio = chip->base;
+        int reg;
+        const char *label;
+
+        /* We report the GPIO even if it's not requested since
+         * we're also reporting things like alternate
+         * functions which apply even when the GPIO is not in
+         * use as a GPIO.
+         */
+        label = gpiochip_is_requested(chip, 0);
+        if (!label)
+                label = "Unrequested";
+                seq_printf(s, " gpio-%-3d (%-20.20s) ", gpio, label);
+                reg = snd_soc_read(&alc5623->codec, ALC5623_GPIO_PIN_STATUS);
+        if (reg < 0) {
+                dev_err(alc5623->dev,
+                        "GPIO control %d read failed: %d\n",
+                        gpio, reg);
+                seq_printf(s, "\n");
+        } else
+                seq_printf(s, "(%x)\n", reg & ALC5623_GPIO_PIN_GPIO_MASK);
+
+}
+#else
+#define alc5623_gpio_dbg_show NULL
+#endif
+
+static struct gpio_chip alc5623_gpio_chip = {
+        .label                  = "alc5623",
+        .owner                  = THIS_MODULE,
+        .direction_input        = alc5623_gpio_direction_in,
+        .get                    = alc5623_gpio_get,
+        .direction_output       = alc5623_gpio_direction_out,
+        .set                    = alc5623_gpio_set,
+        .dbg_show               = alc5623_gpio_dbg_show,
+        .can_sleep              = 1,
+};
+
+static void alc5623_init_gpio(struct snd_soc_codec* codec)
+{
+        struct alc5623* alc5623 = snd_soc_codec_get_drvdata(codec);
+        struct alc5623_platform_data* pdata = dev_get_platdata(codec->dev);
+        int ret;
+
+        alc5623->gpio_chip = alc5623_gpio_chip;
+        alc5623->gpio_chip.ngpio = 1;
+        alc5623->gpio_chip.dev = codec->dev;
+
+        if (pdata && pdata->gpio_base)
+                alc5623->gpio_chip.base = pdata->gpio_base;
+        else
+                alc5623->gpio_chip.base = -1;
+
+        ret = gpiochip_add(&alc5623->gpio_chip);
+        if (ret != 0)
+                dev_err(codec->dev,
+                        "Failed to add GPIOs for alc5623: %d\n", ret);
+}
+
+static void alc5623_free_gpio(struct snd_soc_codec* codec)
+{
+        struct alc5623* alc5623 = snd_soc_codec_get_drvdata(codec);
+        int ret;
+
+        ret = gpiochip_remove(&alc5623->gpio_chip);
+        if (ret != 0)
+                dev_err(codec->dev,
+                        "Failed to remove GPIOs for alc5623: %d\n", ret);
+}
+#else
+static void alc5623_init_gpio(struct snd_soc_codec* codec)
+{
+}
+
+static void alc5623_free_gpio(struct snd_soc_codec* codec)
+{
+}
+#endif
+
 
 static void alc5623_fill_cache(struct snd_soc_codec *codec)
 {
@@ -310,7 +447,7 @@ static const char *alc5623_hpl_out_input_sel[] = {
 static const char *alc5623_hpr_out_input_sel[] = {
 		"Vmid", "HP Right Mix"};
 static const char *alc5623_spkout_input_sel[] = {
-		"Vmid", "HPOut Mix", "Speaker Mix", "Mono Mix"};
+		"Vmid", "HP Left Mix", "Speaker Mix", "Mono Mix"};
 static const char *alc5623_aux_out_input_sel[] = {
 		"Vmid", "HPOut Mix", "Speaker Mix", "Mono Mix"};
 
@@ -446,8 +583,8 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"Line Mix", NULL,				"Left LineIn"},
 	{"AuxI Mix", NULL,				"Left AuxI"},
 	{"AuxI Mix", NULL,				"Right AuxI"},
-	{"AUXOUTL", NULL,				"Left AuxOut"},
-	{"AUXOUTR", NULL,				"Right AuxOut"},
+	{"HPOut Mix", NULL,				"HPL Mix"}, 
+	{"HPOut Mix", NULL,				"HPR Mix"}, 
 
 	/* HP mixer */
 	{"HPL Mix", "ADC2HP_L Playback Switch",		"Left Capture Mix"},
@@ -504,13 +641,13 @@ static const struct snd_soc_dapm_route audio_map[] = {
 
 	/* speaker out mux */
 	{"SpeakerOut Mux", "Vmid",			"Vmid"},
-	{"SpeakerOut Mux", "HPOut Mix",			"HP Mix"},
+	{"SpeakerOut Mux", "HP Left Mix",		"HPL Mix"},
 	{"SpeakerOut Mux", "Speaker Mix",		"Speaker Mix"},
 	{"SpeakerOut Mux", "Mono Mix",			"Mono Mix"},
 
 	/* Mono/Aux Out mux */
 	{"AuxOut Mux", "Vmid",				"Vmid"},
-	{"AuxOut Mux", "HPOut Mix",			"HP Mix"},
+	{"AuxOut Mux", "HPOut Mix",			"HPOut Mix"},
 	{"AuxOut Mux", "Speaker Mix",			"Speaker Mix"},
 	{"AuxOut Mux", "Mono Mix",			"Mono Mix"},
 
@@ -519,7 +656,9 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"Left Headphone", NULL,			"Left Headphone Mux"},
 	{"HPR", NULL,					"Right Headphone"},
 	{"Right Headphone", NULL,			"Right Headphone Mux"},
+	{"AUXOUTL", NULL,				"Left AuxOut"},
 	{"Left AuxOut", NULL,				"AuxOut Mux"},
+	{"AUXOUTR", NULL,				"Right AuxOut"},
 	{"Right AuxOut", NULL,				"AuxOut Mux"},
 
 	/* input pga */
@@ -1421,6 +1560,7 @@ static int alc5623_probe(struct snd_soc_codec *codec)
 		return -EINVAL;
 	}
 #endif
+	alc5623_init_gpio(codec);
 
 	return ret;
 }
@@ -1428,8 +1568,12 @@ static int alc5623_probe(struct snd_soc_codec *codec)
 /* power down chip */
 static int alc5623_remove(struct snd_soc_codec *codec)
 {
-	alc5623_set_bias_level(codec, SND_SOC_BIAS_OFF);
-	return 0;
+        if (codec->control_data)
+                alc5623_set_bias_level(codec, SND_SOC_BIAS_OFF);
+
+        alc5623_free_gpio(codec);
+
+        return 0;
 }
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36)
@@ -1448,99 +1592,6 @@ static struct snd_soc_codec_driver soc_codec_device_alc5623 = {
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,36)	
 static struct snd_soc_codec *alc5623_codec = NULL;
 #endif
-
-static inline struct alc5623 *to_alc5623(struct gpio_chip *chip)
-{
-        return container_of(chip, struct alc5623, gpio_chip);
-}
-
-static int alc5623_gpio_direction_in(struct gpio_chip *chip, unsigned offset)
-{
-        struct alc5623 *alc5623 = to_alc5623(chip);
-
-        return snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_PIN_CONFIG,
-                               ALC5623_GPIO_PIN_GPIO_MASK, ALC5623_GPIO_PIN_GPIO_MASK);
-}
-
-static int alc5623_gpio_get(struct gpio_chip *chip, unsigned offset)
-{
-        printk(KERN_INFO "%s++", __func__);
-        struct alc5623 *alc5623 = to_alc5623(chip);
-        int ret;
-
-        ret = snd_soc_read(&alc5623->codec, ALC5623_GPIO_PIN_STATUS);
-        if (ret < 0)
-                return ret;
-
-        if (ret & ALC5623_GPIO_PIN_GPIO_MASK)
-                return 1;
-        else
-                return 0;
-}
-
-static int alc5623_gpio_direction_out(struct gpio_chip *chip,
-                                     unsigned offset, int value)
-{
-        struct alc5623 *alc5623 = to_alc5623(chip);
-
-        return snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_PIN_CONFIG,
-                               ALC5623_GPIO_PIN_GPIO_MASK, 0);
-}
-
-static void alc5623_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
-{
-        printk(KERN_INFO "%s++", __func__);
-        struct alc5623 *alc5623 = to_alc5623(chip);
-
-        if (value)
-                value = ALC5623_GPIO_PIN_GPIO_MASK;
-
-        snd_soc_update_bits(&alc5623->codec, ALC5623_GPIO_OUTPUT_PIN_CTRL, ALC5623_GPIO_PIN_GPIO_MASK, value);
-}
-
-#ifdef CONFIG_DEBUG_FS
-static void alc5623_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
-{
-        struct alc5623 *alc5623 = to_alc5623(chip);
-
-        int gpio = chip->base;
-        int reg;
-        const char *label;
-
-        /* We report the GPIO even if it's not requested since
-         * we're also reporting things like alternate
-         * functions which apply even when the GPIO is not in
-         * use as a GPIO.
-         */
-        label = gpiochip_is_requested(chip, 0);
-        if (!label)
-                label = "Unrequested";
-                seq_printf(s, " gpio-%-3d (%-20.20s) ", gpio, label);
-                reg = snd_soc_read(&alc5623->codec, ALC5623_GPIO_PIN_STATUS);
-        if (reg < 0) {
-                dev_err(alc5623->dev,
-                        "GPIO control %d read failed: %d\n",
-                        gpio, reg);
-                seq_printf(s, "\n");
-        } else
-                seq_printf(s, "(%x)\n", reg & ALC5623_GPIO_PIN_GPIO_MASK);
-
-}
-#else
-#define alc5623_gpio_dbg_show NULL
-#endif
-
-static struct gpio_chip template_chip = {
-        .label                  = "alc5623",
-        .owner                  = THIS_MODULE,
-        .direction_input        = alc5623_gpio_direction_in,
-        .get                    = alc5623_gpio_get,
-        .direction_output       = alc5623_gpio_direction_out,
-        .set                    = alc5623_gpio_set,
-        .dbg_show               = alc5623_gpio_dbg_show,
-        .can_sleep              = 1,
-};
-
 
 /*
  * ALC5623 2 wire address is determined by A1 pin
@@ -1701,19 +1752,6 @@ static int alc5623_i2c_probe(struct i2c_client *client,
 	}
 
 #endif
-
-        if (pdata && pdata->gpio_base)
-		alc5623->gpio_chip = template_chip;
-	        alc5623->gpio_chip.ngpio = 1;
-	        alc5623->gpio_chip.dev = &client->dev;
-        	alc5623->gpio_chip.base = pdata->gpio_base;
-
-	        ret = gpiochip_add(&alc5623->gpio_chip);
-        	if (ret < 0) {
-                	dev_err(&client->dev, "Could not register gpiochip, %d\n",
-	                        ret);
-        	        kfree(alc5623);
-	        }
 
 	return ret;
 }

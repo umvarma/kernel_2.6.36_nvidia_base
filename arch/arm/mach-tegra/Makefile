@@ -97,6 +97,7 @@ obj-${CONFIG_MACH_SHUTTLE}              += shuttle-pm-wlan.o
 # Adam arch drivers
 obj-${CONFIG_MACH_ADAM}              += board-adam-aes.o
 obj-${CONFIG_MACH_ADAM}              += board-adam-audio.o
+obj-${CONFIG_MACH_ADAM}              += board-adam-jack.o
 obj-${CONFIG_MACH_ADAM}              += board-adam-bootinfo.o
 obj-${CONFIG_MACH_ADAM}              += board-adam-bt.o
 obj-${CONFIG_MACH_ADAM}              += board-adam-camera.o

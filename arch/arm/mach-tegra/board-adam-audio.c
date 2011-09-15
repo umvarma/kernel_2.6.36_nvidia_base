@@ -47,7 +47,6 @@
 #endif
 
 #include <mach/system.h>
-#include <mach/adam_audio.h>
 
 #include "board.h"
 #include "board-adam.h"
@@ -253,7 +252,7 @@ static struct alc5623_platform_data alc5623_pdata = {
 //	.hpvdd_mv 	= 3300,	/* Headphone Vdd in millivolts */
 	.add_ctrl	= 0xD300,
 	.jack_det_ctrl	= 0,
-	.gpio_base	= ARCH_NR_GPIOS - 1,
+	.gpio_base	= ALC5623_GPIO_BASE,
 };
 
 static struct platform_device alc5623_gpio = {
@@ -275,16 +274,9 @@ static struct i2c_board_info __initdata adam_i2c_bus0_board_info[] = {
 	},
 };
 
-static struct adam_audio_platform_data adam_audio_pdata = {
-	.gpio_hp_det = ADAM_HP_DETECT,
-}; 
-
 static struct platform_device adam_audio_device = {
 	.name = "tegra-snd-adam",
 	.id   = 0,
-	.dev = {
-		.platform_data = &adam_audio_pdata,
-	}, 
 };
 
 static struct platform_device spdif_dit_device = {
