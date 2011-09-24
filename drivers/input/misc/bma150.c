@@ -2,6 +2,8 @@
  * BMA150/SMB380 linux driver
  *  Copyright (C) 2011 Eduardo José Tagle <ejtagle@tutopia.com> 
  *  Copyright (C) 2009 Bosch Sensortec GmbH
+ *  Authors:	Eduardo José Tagle   <ejtagle@tutopia.com>
+ *		Rene Bensch "rebel1" <rene.bensch@googlemail,com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -37,6 +39,11 @@
 #include <linux/delay.h>
 #include <linux/miscdevice.h>
 #include <linux/input.h>
+#include <linux/gpio.h>
+
+#define TEGRA_GPIO_GSENSOR_TOGGLE       57
+#define xy_flip
+static int temp1;
 
 /** BMA150 acceleration data 
 	\brief Structure containing acceleration values for x,y and z-axis in signed short
@@ -621,6 +628,7 @@ static int bma150_init(struct bma150ctx *ctx)
 
 	/* If device not found, say so now */
 	return (ctx->chip_id == 0x02) ? 0 : -ENODEV;
+
 }
 
 /** Perform soft reset of BMA150 via bus command
@@ -689,11 +697,11 @@ static int bma150_set_offset_eeprom(struct bma150ctx *ctx, unsigned char xyz, un
 	data = BMA150_SET_BITSLICE(data, BMA150_OFFSET_X_LSB, offset);
 	if ((comres = bma150_i2c_write(ctx, (BMA150_EEP_OFFSET + BMA150_OFFSET_X_LSB__REG + xyz), &data, 1)))
 		return comres;
-	mdelay(34);
+	msleep(34);
 	data = (offset & 0x3ff) >> 2;
 	if ((comres = bma150_i2c_write(ctx, (BMA150_EEP_OFFSET + BMA150_OFFSET_X_MSB__REG + xyz), &data, 1)))
 		return comres;
-	mdelay(34);
+	msleep(34);
 	return 0;
 }
 
@@ -1226,6 +1234,29 @@ static int bma150_read_temperature(struct bma150ctx *ctx, unsigned char *temp)
 */
 static int bma150_read_accel_xyz(struct bma150ctx *ctx, bma150acc_t * acc)
 {
+	static int counter = 0;
+	static int toggle = 1;
+	int new_toggle;
+	// start GSENSOR Toggle with GPIO
+		if( counter % 25 == 0 ) {
+		 new_toggle = gpio_get_value( TEGRA_GPIO_GSENSOR_TOGGLE );
+		 if(new_toggle == 0)
+			{
+			new_toggle = 1 ;
+			} else {
+			new_toggle = 0 ;
+			}
+			if( toggle != new_toggle ) {
+			toggle = new_toggle;
+			printk(KERN_INFO "[SHUTTLE] GPIO:%d = %d Set GSENSOR MODE: [%s]\n",
+			TEGRA_GPIO_GSENSOR_TOGGLE, toggle, toggle == 0 ? "sleep" : "wake-->normal");
+			bma150_set_mode( ctx, BMA150_MODE_SLEEP );
+			if( toggle == 1 ) {
+			bma150_set_mode( ctx, BMA150_MODE_NORMAL );
+			}
+			    }
+			counter = 0;
+				}
 	int comres;
 	unsigned char data[6];
 
@@ -1251,6 +1282,11 @@ static int bma150_read_accel_xyz(struct bma150ctx *ctx, bma150acc_t * acc)
 	acc->z = acc->z << (sizeof(short) * 8 - (BMA150_ACC_Z_LSB__LEN + BMA150_ACC_Z_MSB__LEN));
 	acc->z = acc->z >> (sizeof(short) * 8 - (BMA150_ACC_Z_LSB__LEN + BMA150_ACC_Z_MSB__LEN));
 
+#ifdef xy_flip
+	temp1=(acc->x * -1);
+	acc->x=acc->y;
+	acc->y=temp1; 
+#endif
 	return 0;
 }
 
@@ -1482,7 +1518,7 @@ static int bma150_read_accel_avg(struct bma150ctx *ctx, int num_avg, bma150acc_t
 		y_avg += accel.y;
 		z_avg += accel.z;
 
-		mdelay(10);
+		msleep(10);
 	}
 	avg->x = x_avg /= num_avg;	/* calculate averages, min and max values */
 	avg->y = y_avg /= num_avg;
@@ -1573,7 +1609,7 @@ static int bma150_calibrate(struct bma150ctx *ctx, bma150acc_t orientation, int 
 				return comres;
 			if ((comres = bma150_set_offset(ctx, 2, offset_z)))
 				return comres;
-			mdelay(20);
+			msleep(20);
 		}
 	} while (need_calibration || !min_max_ok);
 
@@ -1595,7 +1631,7 @@ static int bma150_calibrate(struct bma150ctx *ctx, bma150acc_t orientation, int 
 	if ((comres = bma150_set_ee_w(ctx, 0)))
 		return comres;
 
-	mdelay(20);
+	msleep(20);
 	*tries = ltries - *tries;
 
 	return !need_calibration;
@@ -1610,7 +1646,7 @@ static int bma150_device_power_on(struct bma150ctx *ctx)
 		return comres;
 	if ((comres = bma150_set_bandwidth(ctx, BMA150_BW_25HZ)))
 		return comres;
-	mdelay(20);
+	msleep(20);
 	return 0;
 }
 

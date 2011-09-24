@@ -283,17 +283,17 @@ static struct regulator_init_data ldo3_data
 static struct regulator_init_data ldo4_data 		 
 	= ADJ_REGULATOR_INIT(ldo4,1700, 2000, 1, 0); // 1800
 static struct regulator_init_data ldo5_data 		 
-	= ADJ_REGULATOR_INIT(ldo5,1250, 3350, 0, 1); // 2850
+	= ADJ_REGULATOR_INIT(ldo5,1250, 3350, 1, 1); // 2850
 static struct regulator_init_data ldo6_data 		 
-	= ADJ_REGULATOR_INIT(ldo6,1250, 3350, 0, 1); // 2850  V-3V3 USB
+	= ADJ_REGULATOR_INIT(ldo6,1250, 3350, 1, 1); // 2850  V-3V3 USB
 static struct regulator_init_data ldo7_data 		 
 	= ADJ_REGULATOR_INIT(ldo7,1250, 3350, 0, 0); // 3300  V-SDIO
 static struct regulator_init_data ldo8_data 		 
 	= ADJ_REGULATOR_INIT(ldo8,1250, 3350, 0, 0); // 1800  V-2V8
 static struct regulator_init_data ldo9_data 		 
-	= ADJ_REGULATOR_INIT(ldo9,1250, 3350, 0, 1); // 2850
+	= ADJ_REGULATOR_INIT(ldo9,1250, 3350, 1, 1); // 2850
 static struct regulator_init_data rtc_data  		 
-	= ADJ_REGULATOR_INIT(rtc, 1250, 3350, 0, 1); // 3300
+	= ADJ_REGULATOR_INIT(rtc, 1250, 3350, 1, 1); // 3300
 /*static struct regulator_init_data buck_data 
 	= ADJ_REGULATOR_INIT(buck,1250, 3350, 0, 0); // 3300*/
 	
@@ -302,7 +302,7 @@ static struct regulator_init_data soc_data
 static struct regulator_init_data ldo_tps74201_data  
 	= FIXED_REGULATOR_INIT(ldo_tps74201 , 1500, 0, 0 ); // 1500 (VDD1.5, enabled by PMU_GPIO[0] (0=enabled) - Turn it off as soon as we boot
 static struct regulator_init_data buck_tps62290_data 
-	= FIXED_REGULATOR_INIT(buck_tps62290, 1050, 0, 0 ); // 1050 (VDD1.05, AVDD_PEX ... enabled by PMU_GPIO[2] (1=enabled)
+	= FIXED_REGULATOR_INIT(buck_tps62290, 1050, 1, 1 ); // 1050 (VDD1.05, AVDD_PEX ... enabled by PMU_GPIO[2] (1=enabled)
 static struct regulator_init_data ldo_tps72012_data  
 	= FIXED_REGULATOR_INIT(ldo_tps72012 , 1200, 0, 0 ); // 1200 (VDD1.2, VCORE_WIFI ...) enabled by PMU_GPIO[1] (1=enabled)
 
@@ -382,7 +382,14 @@ static struct virtual_adj_voltage_config vdd_aon_cfg = {
 
 /* FIXME: do we have rtc alarm irq? */
 static struct tps6586x_rtc_platform_data shuttle_rtc_data = {
-	.irq	= TEGRA_NR_IRQS + TPS6586X_INT_RTC_ALM1, 
+	.irq = TEGRA_NR_IRQS + TPS6586X_INT_RTC_ALM1,
+        .start = {
+	.year = 2009,
+	.month = 1,
+	.day = 1,
+	          },
+        .cl_sel = TPS6586X_RTC_CL_SEL_1_5PF /* use lowest (external 20pF cap) */
+
 };
 
 static struct tps6586x_subdev_info tps_devs[] = {
@@ -584,7 +591,7 @@ static void shuttle_flush_console(void)
 		return;
 	}
 
-	mdelay(50);
+	msleep(50);
 
 	local_irq_disable();
 	if (try_acquire_console_sem())

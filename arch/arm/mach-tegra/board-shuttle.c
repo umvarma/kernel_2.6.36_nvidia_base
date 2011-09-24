@@ -256,7 +256,7 @@ struct NVBOOTARGS
  
 static struct NVBOOTARGS NvBootArgs = { {0}, {0}, {0}, {0}, {0}, {0}, {{0}} }; 
 
-#define _DUMP_WBCODE 1
+/*#define _DUMP_WBCODE 0*/
 #ifdef _DUMP_WBCODE
 u8 tohex(u8 b)
 {
@@ -265,7 +265,6 @@ u8 tohex(u8 b)
 
 void dump_warmboot(u32 from,u32 size)
 {
-#if 1
 	u32 i,p;
 	u8 buf[3*16+5];
 	void __iomem *from_io = ioremap(from, size);
@@ -301,7 +300,6 @@ void dump_warmboot(u32 from,u32 size)
 		}
 	}
 	iounmap(from_io);
-#endif
 }
 #endif
 
@@ -319,6 +317,8 @@ static int __init get_cfg_from_tags(void)
 		tegra_bootloader_fb_size  = NvBootArgs.MemHandleArgs[NvBootArgs.FramebufferArgs.MemHandleKey - ATAG_NVIDIA_PRESERVED_MEM_0].Size;
 		
 		pr_info("Nvidia TAG: framebuffer: %u @ 0x%08lx\n",tegra_bootloader_fb_size,tegra_bootloader_fb_start);
+		
+		/* Unfortunately, the kernel locks up if we enable this */
 		tegra_bootloader_fb_start = tegra_bootloader_fb_size = 0;
 	}
 	
@@ -333,7 +333,10 @@ static int __init get_cfg_from_tags(void)
 		tegra_lp0_vec_size  = NvBootArgs.MemHandleArgs[NvBootArgs.WarmbootArgs.MemHandleKey - ATAG_NVIDIA_PRESERVED_MEM_0].Size;
 
 		pr_info("Nvidia TAG: LP0: %u @ 0x%08lx\n",tegra_lp0_vec_size,tegra_lp0_vec_start);		
-//		tegra_lp0_vec_start = tegra_lp0_vec_size = 0;
+		
+		/* Until we find out if the bootloader supports the workaround required to implement
+		   LP0, disable it */
+		tegra_lp0_vec_start = tegra_lp0_vec_size = 0;
 
 	}
 	
@@ -474,6 +477,29 @@ static int __init parse_tag_nvidia(const struct tag *tag)
 }
 __tagtable(ATAG_NVIDIA, parse_tag_nvidia);
 
+/* #define _DUMP_BOOTCAUSE 0 */
+#ifdef _DUMP_BOOTCAUSE
+
+static void __iomem *pmc = IO_ADDRESS(TEGRA_PMC_BASE);
+#define PMC_SCRATCH0		0x50
+#define PMC_SCRATCH1		0x54
+#define PMC_SCRATCH38		0x134
+#define PMC_SCRATCH39		0x138
+#define PMC_SCRATCH41		0x140 
+
+void dump_bootflags(void)
+{
+	pr_info("PMC_SCRATCH0: 0x%08x | PMC_SCRATCH1: 0x%08x | PMC_SCRATCH41: 0x%08x\n",
+		readl(pmc + PMC_SCRATCH0),
+		readl(pmc + PMC_SCRATCH1),
+		readl(pmc + PMC_SCRATCH41)
+	);
+
+
+}
+#endif
+
+
 static atomic_t shuttle_3g_gps_powered = ATOMIC_INIT(0);
 void shuttle_3g_gps_poweron(void)
 {
@@ -557,11 +583,11 @@ static void __init tegra_shuttle_init(void)
 		pr_err("Failed to set wifi sdmmc tap delay\n");
 	}
 
-	/* Initialize the clocks */
-	shuttle_clks_init();
-
 	/* Initialize the pinmux */
 	shuttle_pinmux_init();
+	
+	/* Initialize the clocks - clocks require the pinmux to be initialized first */
+	shuttle_clks_init();
 
 	/* Register i2c devices - required for Power management and MUST be done before the power register */
 	shuttle_i2c_register_devices();
@@ -631,6 +657,11 @@ static void __init tegra_shuttle_init(void)
 #ifdef _DUMP_WBCODE
 	dump_warmboot(tegra_lp0_vec_start,tegra_lp0_vec_size);
 #endif
+
+#ifdef _DUMP_BOOTCAUSE
+	dump_bootflags();
+#endif
+
 	
 }
 

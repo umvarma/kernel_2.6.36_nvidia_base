@@ -150,6 +150,7 @@ static struct tegra_sdhci_platform_data tegra_sdhci_platform_data2 = {
 
 static struct tegra_sdhci_platform_data tegra_sdhci_platform_data3 = {
 	.cd_gpio = ADAM_SDHC_CD,
+	.cd_gpio_polarity = 1,
 	.wp_gpio = -1,
 	.power_gpio = ADAM_SDHC_POWER,
 };

@@ -248,7 +248,7 @@ static struct tegra_gpio_table gpio_table[] = {
 	{ .gpio = ADAM_KEY_VOLUMEDOWN,	.enable = true },
 	{ .gpio = ADAM_KEY_POWER,		.enable = true },
 	{ .gpio = ADAM_KEY_BACK,			.enable = true },
-//	{ .gpio = ADAM_CAMERA_POWER,		.enable = true },
+	{ .gpio = ADAM_CAMERA_POWER,		.enable = true },
 	{ .gpio = ADAM_NAND_WPN,			.enable = true },
 	{ .gpio = ADAM_BL_ENB,			.enable = true },
 	{ .gpio = ADAM_LVDS_SHUTDOWN,	.enable = true },

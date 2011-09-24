@@ -10,4 +10,3 @@ obj-${CONFIG_SND_SOC_ALC5624}   += tegra_generic_codec.o tegra_soc_alc5624.o
 ifeq ($(CONFIG_SND_DEBUG),y)
 EXTRA_CFLAGS += -DDEBUG
 endif
-

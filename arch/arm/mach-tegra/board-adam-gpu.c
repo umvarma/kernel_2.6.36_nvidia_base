@@ -22,6 +22,8 @@
 #include <linux/resource.h>
 #include <linux/platform_device.h>
 #include <linux/pwm_backlight.h>
+#include <linux/kernel.h>
+#include <mach/tegra_cpufreq.h>
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 #endif
@@ -80,7 +82,8 @@ static int adam_disp1_check_fb(struct device *dev, struct fb_info *info);
 static struct platform_pwm_backlight_data adam_backlight_data = {
 	.pwm_id		= ADAM_BL_PWM_ID,
 	.max_brightness	= 255,
-	.dft_brightness	= 224,
+//	.dft_brightness	= 224,
+	.dft_brightness	= 200,
 	.pwm_period_ns	= 1000000,
 	.init		= adam_backlight_init,
 	.exit		= adam_backlight_exit,
@@ -218,6 +221,11 @@ static struct tegra_dc_out adam_disp1_out = {
 
 	.align		= TEGRA_DC_ALIGN_MSB,
 	.order		= TEGRA_DC_ORDER_RED_BLUE,
+
+        /* Enable dithering. Tegra also supports error
+               diffusion, but when the active region is less
+               than 640 pixels wide. */
+       .dither         = TEGRA_DC_ORDERED_DITHER,
 
 	.height 	= 136, /* mm */
 	.width 		= 217, /* mm */
@@ -388,12 +396,20 @@ static void adam_panel_early_suspend(struct early_suspend *h)
 {
 	if (num_registered_fb > 0)
 		fb_blank(registered_fb[0], FB_BLANK_POWERDOWN);
+#ifdef CONFIG_CPU_FREQ
+       cpufreq_save_default_governor();
+       cpufreq_set_conservative_governor();
+#endif
 }
 
 static void adam_panel_late_resume(struct early_suspend *h)
 {
 	if (num_registered_fb > 0)
 		fb_blank(registered_fb[0], FB_BLANK_UNBLANK);
+
+#ifdef CONFIG_CPU_FREQ
+       cpufreq_restore_default_governor();
+#endif
 }
 #endif 
 

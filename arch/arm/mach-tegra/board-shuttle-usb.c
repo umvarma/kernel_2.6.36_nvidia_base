@@ -16,6 +16,7 @@
 
 /* All configurations related to USB */
  
+#include <linux/kobject.h>
 #include <linux/console.h>
 #include <linux/version.h>
 #include <linux/kernel.h>
@@ -234,16 +235,19 @@ static struct platform_device tegra_otg = {
 
 struct platform_device *usb_host_pdev = NULL;
 
-static void tegra_usb_otg_host_register(void)
+static struct platform_device * tegra_usb_otg_host_register(void)
 {
 	int val;
-	if (usb_host_pdev != NULL)
-		return;
 
+	/* If already in host mode, dont try to switch to it again */
+	if (usb_host_pdev != NULL)
+		return usb_host_pdev;
+	
+	/* And register the USB host device */
 	usb_host_pdev = platform_device_alloc(tegra_ehci1_device.name,
 			tegra_ehci1_device.id);
 	if (!usb_host_pdev)
-		return;
+		goto err_2;
 
 	val = platform_device_add_resources(usb_host_pdev, tegra_ehci1_device.resource,
 		tegra_ehci1_device.num_resources);
@@ -258,33 +262,38 @@ static void tegra_usb_otg_host_register(void)
 	if (val)
 		goto error_add;
 
-	/* Place interface in host mode */
-	gpio_direction_input(SHUTTLE_USB0_VBUS );
-		
-	return;
+	return usb_host_pdev;
 
 error_add:
 error:
-	pr_err("%s: failed to add the host controller device\n", __func__);
 	platform_device_put(usb_host_pdev);
 	usb_host_pdev = NULL;
-	return;
+err_2:
+	pr_err("%s: failed to add the host controller device\n", __func__);	
+	return NULL;
 }
 
 static void tegra_usb_otg_host_unregister(void)
 {
-	if (usb_host_pdev == NULL)
-		return;
+	/* Unregister the host adapter */
+	if (usb_host_pdev != NULL) {
+		platform_device_unregister(usb_host_pdev);
+		usb_host_pdev = NULL;
+	}
 
-	/* Place interfase in gadget mode */
-	gpio_direction_output(SHUTTLE_USB0_VBUS, 0 ); /* Gadget */
-
-	platform_device_unregister(usb_host_pdev);
-	usb_host_pdev = NULL;
+	return;
+	
 }
+
+static struct tegra_otg_platform_data tegra_otg_pdata = {
+	.host_register = &tegra_usb_otg_host_register,
+	.host_unregister = &tegra_usb_otg_host_unregister,
+};
 
 
 static struct platform_device *shuttle_usb_devices[] __initdata = {
+	/* OTG should be the first to be registered */
+	&tegra_otg_device,
 #ifdef CONFIG_USB_ANDROID_ACM	
 	&tegra_usb_acm_device,
 #endif
@@ -296,6 +305,22 @@ static struct platform_device *shuttle_usb_devices[] __initdata = {
 	&tegra_ehci2_device,
 	&tegra_ehci3_device,
 };
+
+
+static void tegra_set_host_mode(void)
+{
+	/* Place interface in host mode */
+	gpio_direction_input(SHUTTLE_USB0_VBUS );
+}
+
+static void tegra_set_gadget_mode(void)
+{
+	/* Place interfase in gadget mode */
+	gpio_direction_output(SHUTTLE_USB0_VBUS, 0 ); /* Gadget */
+}
+
+
+struct kobject *usb_kobj = NULL;
 
 static ssize_t usb_read(struct device *dev, struct device_attribute *attr,
 		       char *buf)
@@ -321,9 +346,9 @@ static ssize_t usb_write(struct device *dev, struct device_attribute *attr,
 
 	if (!strcmp(attr->attr.name, "host_mode")) {
 		if (on)
-			tegra_usb_otg_host_register();
+			tegra_set_host_mode();
 		else
-			tegra_usb_otg_host_unregister();
+			tegra_set_gadget_mode();
 	} 
 
 	return count;
@@ -349,7 +374,8 @@ int __init shuttle_usb_register_devices(void)
 	tegra_ehci1_device.dev.platform_data = &tegra_ehci_pdata[0];
 	tegra_ehci2_device.dev.platform_data = &tegra_ehci_pdata[1];
 	tegra_ehci3_device.dev.platform_data = &tegra_ehci_pdata[2];
-	
+	tegra_otg_device.dev.platform_data = &tegra_otg_pdata;
+
 	/* If in host mode, set VBUS to 1 */
 	gpio_request(SHUTTLE_USB0_VBUS, "USB0 VBUS"); /* VBUS switch, perhaps ? -- Tied to what? -- should require +5v ... */
 	
@@ -359,7 +385,14 @@ int __init shuttle_usb_register_devices(void)
 	ret = platform_add_devices(shuttle_usb_devices, ARRAY_SIZE(shuttle_usb_devices));
 	if (ret)
 		return ret;
-
-	/* Attach an attribute to the already registered udc device to switch it to host mode */
-	return sysfs_create_group(&tegra_udc_device.dev.kobj, &usb_attr_group); 
+		
+	/* Register a sysfs interface to let user switch modes */
+	usb_kobj = kobject_create_and_add("usbbus", NULL);
+	if (!usb_kobj) {
+		pr_err("Unable to register USB mode switch");
+		return 0;	
+	}
+	
+	/* Attach an attribute to the already registered usbbus to let the user switch usb modes */
+	return sysfs_create_group(usb_kobj, &usb_attr_group); 
 }
