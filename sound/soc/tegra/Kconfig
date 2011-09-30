@@ -64,3 +64,15 @@ config SND_TEGRA_SOC_ADAM
 	help
 	  Say Y or M here if you want to add support for SoC audio on the
 	  Notion Ink Adam Tablet PCs. 
+ 
+config SND_TEGRA_SOC_SMBA1002
+	tristate "SoC Audio support for SMBA1002 based Tablet PCs"
+	depends on SND_TEGRA_SOC && MACH_SMBA1002 && I2C
+	default m
+	select SND_TEGRA_SOC_I2S
+	select SND_TEGRA_SOC_IEC
+	select SND_TEGRA_SOC_PCM
+	select SND_SOC_ALC5623
+	help
+	  Say Y or M here if you want to add support for SoC audio on the
+	  SMBA1002 Tablet PCs.

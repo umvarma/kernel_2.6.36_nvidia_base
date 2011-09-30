@@ -33,6 +33,11 @@ config MACH_ADAM
        help
          Support for all TabletPCs based on the ADAM design.
 
+config MACH_SMBA1002
+       bool "Malata smba1002"
+       help
+         Support for the Malata smba1002
+
 config MACH_SHUTTLE
        bool "Shuttle (P10AN01) TabletPC"
        help

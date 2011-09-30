@@ -127,6 +127,39 @@ obj-${CONFIG_MACH_ADAM}              += board-adam-pm-gps.o
 obj-${CONFIG_MACH_ADAM}              += board-adam-pm-gsm.o
 #obj-${CONFIG_MACH_ADAM}              += board-adam-pm-wlan.o
 
+# smba1002 arch drivers
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-aes.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-audio.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-jack.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-bootinfo.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-bt.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-camera.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-clocks.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-gps.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-gpu.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-gsm.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-i2c.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-keyboard.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-memory.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-nand.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-pinmux.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-power.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-sdhci.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-sensors.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-spi.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-touch.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-uart.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-usb.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-wdt.o
+#obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-wlan.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002.o
+# smba1002 power management drivers
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-pm-bluetooth.o
+obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-pm-camera.o
+#obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-pm-gps.o
+#obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-pm-gsm.o
+#obj-${CONFIG_MACH_SMBA1002}              += board-smba1002-pm-wlan.o
+
 obj-${CONFIG_MACH_VENTANA}              += board-ventana.o
 obj-${CONFIG_MACH_VENTANA}              += board-ventana-pinmux.o
 obj-${CONFIG_MACH_VENTANA}              += board-ventana-sdhci.o
