@@ -40,17 +40,31 @@ MODULE_DESCRIPTION("Wake smb_a1002 when power button is pressed");
 MODULE_LICENSE("GPL");
 
 static void smba1002_wake_do_wake(struct work_struct *work) {
-	tps6586x_cancel_sleep();
 	// Need to queue this function since i2c is slow and this handler
 	// should be atomic.
+	tps6586x_cancel_sleep();
 }
 DECLARE_WORK(do_wake, smba1002_wake_do_wake);
 
+static void smba1002_wake_force_shutdown(struct work_struct *work) {
+    // Need to queue this function since i2c is slow and this handler
+    // should be atomic.
+    tps6586x_power_off();
+}
+DECLARE_DELAYED_WORK(do_shutdown, smba1002_wake_force_shutdown);
+
 static void smba1002_wake_event(struct input_handle *handle, unsigned int type, unsigned int code, int value)
 {
-	if(type == EV_KEY && code == KEY_POWER && !!value) {
-	  schedule_work(&do_wake);
-	}
+    if(type == EV_KEY && code == KEY_POWER) {
+      if(!!value) {
+        // button pressed; cancel TPS sleep mode
+        schedule_work(&do_wake);
+        // ... and schedule shutdown if button remains pressed
+        schedule_delayed_work(&do_shutdown, 5*HZ);
+      } else {
+        // button is not longer pressed; cancel shutdown
+        cancel_delayed_work(&do_shutdown);
+      }
 }
 
 static int smba1002_wake_connect(struct input_handler *handler, struct input_dev *dev,
