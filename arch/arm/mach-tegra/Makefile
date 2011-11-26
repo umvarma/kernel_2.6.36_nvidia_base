@@ -84,6 +84,7 @@ obj-${CONFIG_MACH_SHUTTLE}              += board-shuttle-spi.o
 obj-${CONFIG_MACH_SHUTTLE}              += board-shuttle-touch.o
 obj-${CONFIG_MACH_SHUTTLE}              += board-shuttle-uart.o
 obj-${CONFIG_MACH_SHUTTLE}              += board-shuttle-usb.o
+obj-${CONFIG_MACH_SHUTTLE}              += board-shuttle-wake.o
 obj-${CONFIG_MACH_SHUTTLE}              += board-shuttle-wdt.o
 obj-${CONFIG_MACH_SHUTTLE}              += board-shuttle-wlan.o
 obj-${CONFIG_MACH_SHUTTLE}              += board-shuttle.o

@@ -49,7 +49,7 @@ static struct gpio_keys_button smba1002_keys[] = {
 	[2] = {
 		.gpio = SMBA1002_KEY_POWER,
 		.active_low = true,
-		.debounce_interval = 100,
+		.debounce_interval = 50,
 		.wakeup = true,		
 		.code = KEY_POWER,
 		.type = EV_KEY,		
@@ -70,7 +70,7 @@ static struct gpio_keys_button smba1002_keys[] = {
 static struct gpio_keys_platform_data smba1002_keys_platform_data = {
 	.buttons 	= smba1002_keys,
 	.nbuttons 	= ARRAY_SIZE(smba1002_keys),
-	.rep		= true, /* auto repeat enabled */
+	.rep		= false, /* auto repeat disabled */
 };
 
 static struct platform_device smba1002_keys_device = {
